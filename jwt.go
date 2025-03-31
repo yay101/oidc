@@ -11,17 +11,22 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
-	"time"
 )
 
 type IDToken struct {
-	Issuer     string    `json:"iss"`
-	Subject    string    `json:"sub"`
-	Audience   string    `json:"aud"`
-	Expiration time.Time `json:"exp"`
-	IssuedAt   time.Time `json:"iat"`
-	AuthTime   time.Time `json:"auth_time"`
-	Nonce      string    `json:"nonce"`
+	Initiator  string  `json:"ini"`
+	Issuer     string  `json:"iss"`
+	Subject    string  `json:"sub"`
+	Audience   string  `json:"aud"`
+	Email      string  `json:"email"`
+	Expiration secTime `json:"exp"`
+	IssuedAt   secTime `json:"iat"`
+	AuthTime   secTime `json:"auth_time"`
+	Nonce      string  `json:"nonce"`
+}
+type tokenheader struct {
+	Alg string `json:"alg"`
+	Kid string `json:"kid"`
 }
 
 type sigkey struct {
@@ -41,50 +46,72 @@ type sigkeywrapper struct {
 	Keys []sigkey `json:"keys"`
 }
 
-var (
-	pubkeys []pubkey
-)
-
-func (p *Provider) getKeys() []pubkey {
+func (p *Provider) getKeys() {
+	// Initialize a wrapper to hold signing keys
 	wrapper := sigkeywrapper{}
-	resp, err := http.Get(p.SigningKeyLink)
+
+	// Fetch the signing keys from the provider's endpoint
+	resp, err := http.Get(p.Endpoints.SigningEndpoint)
 	if err != nil {
 		log.Print(err)
 	}
+
+	// Decode the JSON response into our wrapper struct
 	json.NewDecoder(resp.Body).Decode(&wrapper)
+
+	// Initialize a slice to hold the public keys
+	pubkeys := []pubkey{}
+
+	// Process each key in the response
 	for _, key := range wrapper.Keys {
+		// Convert the JWK components (N and E) into an RSA public key
 		pkey, err := generatePublicKey(key.N, key.E)
 		if err != nil {
 			log.Print(err)
 		}
+
+		// Add the key with its ID to our list of public keys
 		pubkeys = append(pubkeys, pubkey{key.Kid, pkey})
 	}
-	return pubkeys
+
+	// Store the public keys in the provider instance
+	p.Keys = pubkeys
 }
 
 func generatePublicKey(nStr, eStr string) (*rsa.PublicKey, error) {
-	// 1. Convert n and e from strings to big.Int
-	n, ok := new(big.Int).SetString(nStr, 10)
-	if !ok {
+	// Decode the base64 URL-encoded modulus string
+	nb, err := base64.RawURLEncoding.DecodeString(nStr)
+	if err != nil {
 		return nil, fmt.Errorf("invalid modulus (n)")
 	}
 
-	e, ok := new(big.Int).SetString(eStr, 10) // e might be small, but big.Int is more general
-	if !ok {
+	// Convert the decoded modulus bytes to a big integer
+	n := new(big.Int).SetBytes(nb)
+
+	// Decode the base64 URL-encoded exponent string
+	eb, err := base64.RawURLEncoding.DecodeString(eStr)
+	if err != nil {
 		return nil, fmt.Errorf("invalid exponent (e)")
 	}
 
-	// 2. Create the RSA public key
+	// Convert the decoded exponent bytes to a big integer
+	// JWT exponents are typically small values like 65537 (0x10001)
+	e := new(big.Int).SetBytes(eb)
+
+	// Construct the RSA public key from the modulus and exponent
 	pubKey := &rsa.PublicKey{
 		N: n,
-		E: int(e.Int64()), // Convert e to int.  JWT e is usually small.
+		E: int(e.Int64()), // Convert the big integer exponent to int format required by rsa.PublicKey
 	}
 
-	// Important: check if the public key is valid.
+	// Security check: ensure the exponent is within safe bounds
+	// Common exponents are 3, 17, or 65537, with 65537 being most common
 	if pubKey.E < 2 || pubKey.E > 65537 {
 		return nil, fmt.Errorf("invalid public key: exponent must be between 2 and 65537")
 	}
 
+	// Security check: ensure the modulus is at least 2048 bits
+	// This is the minimum recommended key size for RSA in current standards
 	if pubKey.N.BitLen() < 2048 {
 		return nil, fmt.Errorf("invalid public key: modulus must be at least 2048 bits")
 	}
@@ -93,7 +120,7 @@ func generatePublicKey(nStr, eStr string) (*rsa.PublicKey, error) {
 }
 
 func verifyRS256Signature(jwt string, pubKey *rsa.PublicKey) (bool, error) {
-	// 1. Split the JWT into its parts (header.payload.signature)
+	// Split the JWT token into three components: header, payload, and signature
 	parts := strings.Split(jwt, ".")
 	if len(parts) != 3 {
 		return false, fmt.Errorf("invalid JWT format")
@@ -102,23 +129,27 @@ func verifyRS256Signature(jwt string, pubKey *rsa.PublicKey) (bool, error) {
 	payload := parts[1]
 	signature := parts[2]
 
-	// 2. Decode the signature from base64
+	// Decode the base64url-encoded signature into its binary form
 	decodedSignature, err := base64.RawURLEncoding.DecodeString(signature)
 	if err != nil {
 		return false, fmt.Errorf("invalid base64 signature: %w", err)
 	}
 
-	// 3. Create the message to be verified (header.payload)
+	// Construct the signed message by concatenating header and payload with a period
+	// This is what was originally signed by the token issuer
 	message := header + "." + payload
 
-	// 4. Hash the message using SHA256 (as RS256 uses SHA256)
+	// Generate SHA-256 hash of the message
+	// RS256 algorithm uses RSA signature with SHA-256 hashing
 	hashed := sha256.Sum256([]byte(message))
 
-	// 5. Verify the signature
-	err = rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, hashed[:], decodedSignature) // Note the [:] to get a slice
+	// Verify the signature using RSA PKCS#1 v1.5 signature scheme
+	// The hashed[:] converts the fixed-size array to a slice as required by the VerifyPKCS1v15 function
+	err = rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, hashed[:], decodedSignature)
 	if err != nil {
 		return false, fmt.Errorf("signature verification failed: %w", err)
 	}
 
+	// Signature is valid if we reach this point
 	return true, nil
 }
