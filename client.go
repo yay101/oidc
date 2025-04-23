@@ -48,7 +48,6 @@ type Provider struct {
 	ClientId          string                `json:"clientid"`
 	ClientSecret      string                `json:"clientsecret"`
 	ConfigurationLink string                `json:"configurationlink"`
-	RedirectUri       string                `json:"redirecturi"`
 	Error             error                 `json:"errors"`
 	Endpoints         EndpointConfiguration `json:"-"`
 	Issuers           []string              `json:"issuers"`
@@ -166,9 +165,9 @@ func newState(provider *Provider, uri, initiator string) *oidcstate {
 	return new
 }
 
-func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
+func (p *Provider) AuthUri(r *http.Request, redirectUri string) (string, *oidcstate) {
 	state := newState(p, r.Referer(), r.Host)
-	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
+	uri, _ := url.JoinPath("https://", r.Host, redirectUri)
 	parts := []string{
 		"response_type=code",
 		"client_id=" + p.ClientId,
@@ -180,8 +179,8 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
 }
 
-func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
-	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
+func (p *Provider) codeToken(r *http.Request, redirectUri string) (token idwrapper, err error) {
+	uri, _ := url.JoinPath("https://", r.Host, redirectUri)
 	wrapper := idwrapper{}
 	values := url.Values{}
 	values.Add("grant_type", "authorization_code")

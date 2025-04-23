@@ -24,10 +24,6 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 
 	// Validate all the providers that are passed to the new client
 	for i := range providers {
-		// Set default redirect URI if none is provided
-		if providers[i].RedirectUri == "" {
-			providers[i].RedirectUri = client.Config.AuthPath
-		}
 		// Validate each provider's configuration
 		providers[i].validate()
 	}
@@ -59,7 +55,7 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 		for i := range client.Config.Providers {
 			if client.Config.Providers[i].Id == id {
 				// Generate authorization URL and state
-				url, state := client.Config.Providers[i].AuthUri(r)
+				url, state := client.Config.Providers[i].AuthUri(r, client.Config.AuthPath)
 				// Set state cookie for later verification
 				http.SetCookie(w, &http.Cookie{Name: "state", Value: state.State, Path: client.Config.AuthPath, Expires: time.Now().Add(5 * time.Minute), Secure: true})
 				// Redirect user to the authorization endpoint
@@ -86,7 +82,7 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 		// Process authorization code if present and state is valid
 		if r.Form.Has("code") && state != nil {
 			// Exchange code for token
-			wrapper, err := state.Provider.codeToken(r)
+			wrapper, err := state.Provider.codeToken(r, client.Config.AuthPath)
 			if err != nil {
 				log.Print(err)
 				state.Done()
