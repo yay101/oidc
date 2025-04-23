@@ -193,6 +193,10 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 		log.Print(err)
 		return token, err
 	}
+	if res.StatusCode != http.StatusOK {
+		log.Print(res.Status)
+		return token, err
+	}
 	switch strings.Split(res.Header.Get("Content-Type"), ";")[0] {
 	case "application/json":
 		err = json.NewDecoder(res.Body).Decode(&wrapper)
