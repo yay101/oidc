@@ -3,6 +3,7 @@ package oidc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"math/rand"
@@ -194,8 +195,9 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 		return token, err
 	}
 	if res.StatusCode != http.StatusOK {
-		log.Print(res.Status)
-		return token, err
+		body, _ := io.ReadAll(res.Body)
+		log.Print(res.Status, string(body))
+		return token, errors.New(string(body))
 	}
 	switch strings.Split(res.Header.Get("Content-Type"), ";")[0] {
 	case "application/json":
