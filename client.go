@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -136,7 +137,7 @@ func newNonce() *nonce {
 		<-ctx.Done()
 		for i, n := range nonces {
 			if n == new {
-				nonces = append(nonces[:i], nonces[i+1:]...)
+				nonces = slices.Delete(nonces, i, i+1)
 			}
 		}
 	}()
@@ -157,7 +158,7 @@ func newState(provider *Provider, uri, initiator string) *oidcstate {
 		<-ctx.Done()
 		for i, s := range states {
 			if s == new {
-				states = append(states[:i], states[i+1:]...)
+				states = slices.Delete(states, i, i+1)
 			}
 		}
 	}()

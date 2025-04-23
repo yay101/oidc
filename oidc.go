@@ -97,6 +97,13 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 
 			// Split the JWT token into its components
 			parts := strings.Split(wrapper.Token, ".")
+			if len(parts) != 3 {
+				log.Print("Invalid token format")
+				log.Print(parts)
+				state.Done()
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
 			// Decode header and payload from base64
 			hb, err := base64.RawURLEncoding.DecodeString(parts[0])
 			pb, err := base64.RawURLEncoding.DecodeString(parts[1])
