@@ -75,6 +75,9 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 		cookie, err := r.Cookie("state")
 		if err != nil {
 			log.Print("no state cookie with request")
+			// Redirect to login page on error
+			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+			return
 		}
 
 		// Get state object from cookie value
@@ -88,8 +91,8 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 			// Exchange code for token
 			wrapper, err := state.Provider.codeToken(r)
 			if err != nil {
-				log.Print(err)
 				state.Done()
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
 				// Redirect to login page on error
 				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
 				return
@@ -98,17 +101,23 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 			// Split the JWT token into its components
 			parts := strings.Split(wrapper.Token, ".")
 			if len(parts) != 3 {
-				log.Print("Invalid token format")
-				log.Print(parts)
 				state.Done()
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Invalid token format."})
 				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
 				return
 			}
 			// Decode header and payload from base64
 			hb, err := base64.RawURLEncoding.DecodeString(parts[0])
+			if err != nil {
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
 			pb, err := base64.RawURLEncoding.DecodeString(parts[1])
 			if err != nil {
-				log.Print(err)
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
 			}
 
 			// Initialize token header and ID token structures
@@ -121,27 +130,42 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 			err = json.Unmarshal(hb, &h)
 			if err != nil {
 				log.Print(err)
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
+				// Redirect to login page on error
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
 			}
 
 			// Unmarshal payload JSON
 			err = json.Unmarshal(pb, &p)
 			if err != nil {
 				log.Print(err)
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
+				// Redirect to login page on error
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
 			}
 
 			// Check if token is issued in the future (potential clock skew)
 			if time.Time(p.IssuedAt).After(time.Now().Add(5 * time.Minute)) {
-				log.Print("Issued in the future.")
-				log.Print(time.Time(p.IssuedAt), time.Now())
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Token issued in the future!"})
+				// Redirect to login page on error
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
 			}
 
 			// Check if token is expired
 			if time.Time(p.Expiration).Before(time.Now()) {
 				log.Print("Expired.")
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Token already expired."})
+				// Redirect to login page on error
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
 			}
 
 			// Verify nonce to prevent replay attacks
 			if !getNonce(p.Nonce) {
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Replay protection triggered."})
 				http.Redirect(w, r, client.Config.LoginPath, 302)
 				return
 			}
@@ -157,14 +181,20 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 
 					// Verify the RS256 signature using the provider's public key
 					ok, err := verifyRS256Signature(wrapper.Token, state.Provider.Keys[i].Key)
-					if !ok {
-						log.Print(err)
+					if !ok || err != nil {
+						http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Could not verify the signature of your token:" + err.Error()})
+						http.Redirect(w, r, client.Config.LoginPath, 302)
+						return
 					} else {
 						// If signature is valid, call the client's callback function
 						if ok, cookie := client.Callback(p); ok {
 							// Set the cookie domain to the initiator
 							cookie.Domain = state.Initiator
 							http.SetCookie(w, cookie)
+							redirect, _ := r.Cookie("Login-Redirect")
+							if redirect != nil {
+								state.RedirectUri = redirect.Value
+							}
 							// Redirect to the original redirect URI
 							http.Redirect(w, r, state.RedirectUri, 302)
 							return
@@ -176,7 +206,6 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 			}
 		}
 	})
-
 	// Return the fully configured client
 	return client
 }
