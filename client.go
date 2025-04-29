@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -89,6 +90,7 @@ const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456
 var (
 	nonces []*nonce
 	states []*oidcstate
+	lj     *slog.Logger
 )
 
 func (s *secTime) UnmarshalJSON(data []byte) error {

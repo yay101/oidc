@@ -5,13 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"time"
 )
 
-func NewClient(domains []string, providers []Provider, authpath string, loginpath string) *Client {
+func NewClient(domains []string, providers []Provider, authpath string, loginpath string, logger *slog.Logger) *Client {
+	if logger == nil {
+		lj = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{AddSource: true}))
+	}
 	// Initialize a new client with the provided configuration
 	client := &Client{
 		Config: ClientConfiguration{
