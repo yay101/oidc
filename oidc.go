@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"slices"
@@ -65,6 +66,10 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 			if client.Config.Providers[i].Id == id {
 				// Generate authorization URL and state
 				url, state := client.Config.Providers[i].AuthUri(r)
+				if state == nil {
+					http.Error(w, "could not generate a valid state, should only occur when we can't determine the incoming request address", 500)
+					return
+				}
 				// Set state cookie for later verification
 				http.SetCookie(w, &http.Cookie{Name: "state", Value: state.State, Path: client.Config.AuthPath, Expires: time.Now().Add(5 * time.Minute), Secure: true})
 				// Redirect user to the authorization endpoint
@@ -106,7 +111,13 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 			}
 
 			//check the ip address is the same as the original requestor
-			if r.Header.Get("X-Forwarded-For") != state.Initiator && r.Header.Get("Forwarded-For") != state.Initiator && r.Header.Get("X-Real-IP") != state.Initiator && r.RemoteAddr != state.Initiator {
+			xfwdHost, _, _ := net.SplitHostPort(r.Header.Get("X-Forwarded-For"))
+			fwdHost, _, _ := net.SplitHostPort(r.Header.Get("Forwarded-For"))
+			realIPHost, _, _ := net.SplitHostPort(r.Header.Get("X-Real-IP"))
+			remoteHost, _, _ := net.SplitHostPort(r.RemoteAddr)
+
+			// Trigger error if none of the potential host sources match the initiator
+			if xfwdHost != state.Initiator && fwdHost != state.Initiator && realIPHost != state.Initiator && remoteHost != state.Initiator {
 				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Bad location."})
 				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
 				return

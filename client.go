@@ -8,6 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -210,8 +211,12 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	default:
 		useraddr = r.RemoteAddr
 	}
+	host, _, err := net.SplitHostPort(useraddr)
+	if err != nil {
+		return "", nil
+	}
 	// Create a new OIDC state
-	state := newState(p, r.Referer(), useraddr)
+	state := newState(p, r.Referer(), host)
 	// Construct the redirect URI
 	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
 	// Define the parameters for the authentication request
