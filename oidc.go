@@ -105,6 +105,13 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 				return
 			}
 
+			//check the ip address is the same as the original requestor
+			if r.Header.Get("X-Forwarded-For") != state.Initiator && r.Header.Get("Forwarded-For") != state.Initiator && r.Header.Get("X-Real-IP") != state.Initiator && r.RemoteAddr != state.Initiator {
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Bad location."})
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
+
 			// Split the JWT token into its components
 			parts := strings.Split(wrapper.Token, ".")
 			if len(parts) != 3 {
