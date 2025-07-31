@@ -223,7 +223,7 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	parts := []string{
 		"response_type=code",
 		"client_id=" + p.ClientId,
-		"scope=openid%20email",
+		"scope=openid%20email%20profile",
 		"redirect_uri=" + url.QueryEscape(uri),
 		"state=" + url.QueryEscape(state.State),
 		"nonce=" + url.QueryEscape(newNonce().Nonce),
