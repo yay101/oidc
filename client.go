@@ -19,7 +19,7 @@ import (
 
 type Client struct {
 	// Config holds the configuration for the OIDC client
-	Config ClientConfiguration `json:"configuration"`
+	Config ClientConfiguration
 	// ProviderHandler is the HTTP handler for the provider endpoint
 	ProviderHandler http.Handler
 	// RedirectHandler is the HTTP handler for the redirect endpoint
@@ -31,39 +31,13 @@ type Client struct {
 
 type ClientConfiguration struct {
 	// Domains specifies the list of domain names this OIDC client is valid for
-	Domains []string `json:"domains"`
+	Domains []string
 	// AuthPath is the URL path for authentication endpoint
-	AuthPath string `json:"auth_path"`
+	AuthPath string
 	// LoginPath is the URL path for the login page
-	LoginPath string `json:"login_path"`
+	LoginPath string
 	// Providers contains the list of configured OIDC providers
-	Providers Providers `json:"providers"`
-}
-
-type Providers []Provider
-
-type Provider struct {
-	Id                string                `json:"id"`
-	Enabled           bool                  `json:"enabled"`
-	Name              string                `json:"name"`
-	Logo              string                `json:"logo"`
-	ClientId          string                `json:"clientid"`
-	ClientSecret      string                `json:"clientsecret"`
-	ConfigurationLink string                `json:"configurationlink"`
-	RedirectUri       string                `json:"redirecturi"`
-	Error             error                 `json:"errors"`
-	Endpoints         EndpointConfiguration `json:"-"`
-	Issuers           []string              `json:"issuers"`
-	Keys              []pubkey              `json:"-"`
-}
-
-type EndpointConfiguration struct {
-	AuthEndpoint    string   `json:"authorization_endpoint"`
-	TokenEndpoint   string   `json:"token_endpoint"`
-	SigningEndpoint string   `json:"jwks_uri"`
-	Algorithm       []string `json:"id_token_signing_alg_values_supported"`
-	ClaimsSupported []string `json:"claims_supported"`
-	GrantTypes      []string `json:"grant_types_supported"`
+	Providers Providers
 }
 
 type nonce struct {
@@ -219,11 +193,13 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	state := newState(p, r.Referer(), host)
 	// Construct the redirect URI
 	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
+	// Create the scopes
+	scopes := append([]string{"scope=openid%20email%20profile"}, p.Endpoints.Scopes...)
 	// Define the parameters for the authentication request
 	parts := []string{
 		"response_type=code",
 		"client_id=" + p.ClientId,
-		"scope=openid%20email%20profile",
+		strings.Join(scopes, "%20"),
 		"redirect_uri=" + url.QueryEscape(uri),
 		"state=" + url.QueryEscape(state.State),
 		"nonce=" + url.QueryEscape(newNonce().Nonce),

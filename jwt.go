@@ -6,8 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
 	"math/big"
 	"net/http"
 	"strings"
@@ -46,18 +46,21 @@ type sigkeywrapper struct {
 	Keys []sigkey `json:"keys"`
 }
 
-func (p *Provider) getKeys() {
+func (p *Provider) getKeys() (err error) {
 	// Initialize a wrapper to hold signing keys
 	wrapper := sigkeywrapper{}
 
 	// Fetch the signing keys from the provider's endpoint
 	resp, err := http.Get(p.Endpoints.SigningEndpoint)
 	if err != nil {
-		log.Print(err)
+		return errors.Join(err, errors.New("failed to get signing keys from provider endpoint"))
 	}
 
 	// Decode the JSON response into our wrapper struct
-	json.NewDecoder(resp.Body).Decode(&wrapper)
+	err = json.NewDecoder(resp.Body).Decode(&wrapper)
+	if err != nil {
+		return errors.Join(err, errors.New("failed to decode the signing keys from the response"))
+	}
 
 	// Initialize a slice to hold the public keys
 	pubkeys := []pubkey{}
@@ -67,7 +70,7 @@ func (p *Provider) getKeys() {
 		// Convert the JWK components (N and E) into an RSA public key
 		pkey, err := generatePublicKey(key.N, key.E)
 		if err != nil {
-			log.Print(err)
+			return errors.Join(err, errors.New("failed to create pubkey from N and E values"))
 		}
 
 		// Add the key with its ID to our list of public keys
@@ -76,6 +79,7 @@ func (p *Provider) getKeys() {
 
 	// Store the public keys in the provider instance
 	p.Keys = pubkeys
+	return nil
 }
 
 func generatePublicKey(nStr, eStr string) (*rsa.PublicKey, error) {
