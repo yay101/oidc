@@ -196,7 +196,7 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
 	// Define the parameters for the authentication request
 	parts := []string{}
-	switch *p.Type {
+	switch p.Type {
 	case OIDC:
 		// Create the scopes
 		scopes := append([]string{"scope=openid%20email%20profile"}, p.Endpoints.Scopes...)
