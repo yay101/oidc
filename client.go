@@ -198,12 +198,10 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	parts := []string{}
 	switch p.Type {
 	case OIDC:
-		// Create the scopes
-		scopes := append([]string{"scope=openid%20email%20profile"}, p.Endpoints.Scopes...)
 		parts = []string{
 			"response_type=code",
 			"client_id=" + p.ClientId,
-			strings.Join(scopes, "%20"),
+			"scope=" + url.QueryEscape(strings.Join(append([]string{"openid", "email", "profile"}, p.Endpoints.Scopes...), " ")),
 			"redirect_uri=" + url.QueryEscape(uri),
 			"state=" + url.QueryEscape(state.State),
 			"nonce=" + url.QueryEscape(newNonce().Nonce),
