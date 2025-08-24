@@ -14,15 +14,16 @@ import (
 )
 
 type IDToken struct {
-	Initiator  string  `json:"ini"`
-	Issuer     string  `json:"iss"`
-	Subject    string  `json:"sub"`
-	Audience   string  `json:"aud"`
-	Email      string  `json:"email"`
-	Expiration secTime `json:"exp"`
-	IssuedAt   secTime `json:"iat"`
-	AuthTime   secTime `json:"auth_time"`
-	Nonce      string  `json:"nonce"`
+	Initiator   string  `json:"ini"`
+	Issuer      string  `json:"iss"`
+	Subject     string  `json:"sub"`
+	Audience    string  `json:"aud"`
+	Email       string  `json:"email"`
+	Expiration  secTime `json:"exp"`
+	IssuedAt    secTime `json:"iat"`
+	AuthTime    secTime `json:"auth_time"`
+	Nonce       string  `json:"nonce"`
+	AccessToken string  `json:"access_token"`
 }
 type tokenheader struct {
 	Alg string `json:"alg"`

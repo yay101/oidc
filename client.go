@@ -54,8 +54,9 @@ type oidcstate struct {
 }
 
 type idwrapper struct {
-	Token string `json:"id_token"`
-	State string `json:"state"`
+	AccessToken string `json:"access_token"`
+	IDToken     string `json:"id_token"`
+	State       string `json:"state"`
 }
 
 type secTime time.Time
@@ -240,7 +241,6 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 	// Send the token request to the provider's token endpoint
 	res, err := http.PostForm(p.Endpoints.TokenEndpoint, values)
 	if err != nil {
-		log.Print(err)
 		return token, err
 	}
 	// Check if the request was successful
@@ -267,7 +267,7 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 		}
 		// Extract the state and id_token from the parsed data
 		wrapper.State = bv.Get("state")
-		wrapper.Token = bv.Get("id_token")
+		wrapper.IDToken = bv.Get("id_token")
 	default:
 		body, _ := io.ReadAll(res.Body)
 		log.Print(string(body))

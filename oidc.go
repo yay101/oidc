@@ -123,8 +123,15 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 				return
 			}
 
+			// Initialize token header and ID token structures
+			h := tokenheader{}
+			p := IDToken{
+				Initiator:   state.Initiator,
+				AccessToken: wrapper.AccessToken,
+			}
+
 			// Split the JWT token into its components
-			parts := strings.Split(wrapper.Token, ".")
+			parts := strings.Split(wrapper.IDToken, ".")
 			if len(parts) != 3 {
 				lj.Error("invalid token format", "extra", strconv.Itoa(len(parts))+" parts (want 3)")
 				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Invalid token format."})
@@ -145,12 +152,6 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
 				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
 				return
-			}
-
-			// Initialize token header and ID token structures
-			h := tokenheader{}
-			p := IDToken{
-				Initiator: state.Initiator,
 			}
 
 			// Unmarshal header JSON
@@ -209,7 +210,7 @@ func NewClient(domains []string, providers []Provider, authpath string, loginpat
 					}
 
 					// Verify the RS256 signature using the provider's public key
-					ok, err := verifyRS256Signature(wrapper.Token, state.Provider.Keys[i].Key)
+					ok, err := verifyRS256Signature(wrapper.IDToken, state.Provider.Keys[i].Key)
 					if !ok || err != nil {
 						lj.Info("could not verify the signature of the token")
 						http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Could not verify the signature of your token:" + err.Error()})
