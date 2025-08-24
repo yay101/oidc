@@ -193,19 +193,36 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	state := newState(p, r.Referer(), host)
 	// Construct the redirect URI
 	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
-	// Create the scopes
-	scopes := append([]string{"scope=openid%20email%20profile"}, p.Endpoints.Scopes...)
 	// Define the parameters for the authentication request
-	parts := []string{
-		"response_type=code",
-		"client_id=" + p.ClientId,
-		strings.Join(scopes, "%20"),
-		"redirect_uri=" + url.QueryEscape(uri),
-		"state=" + url.QueryEscape(state.State),
-		"nonce=" + url.QueryEscape(newNonce().Nonce),
+	parts := []string{}
+	switch *p.Type {
+	case OIDC:
+		// Create the scopes
+		scopes := append([]string{"scope=openid%20email%20profile"}, p.Endpoints.Scopes...)
+		parts = []string{
+			"response_type=code",
+			"client_id=" + p.ClientId,
+			strings.Join(scopes, "%20"),
+			"redirect_uri=" + url.QueryEscape(uri),
+			"state=" + url.QueryEscape(state.State),
+			"nonce=" + url.QueryEscape(newNonce().Nonce),
+		}
+		// Return the complete authentication URI and the OIDC state
+		return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
+	case OAuth2:
+		parts = []string{
+			"response_type=code",
+			"client_id=" + p.ClientId,
+			"scope=" + url.QueryEscape(strings.Join(p.Endpoints.Scopes, " ")),
+			"response_mode=query",
+			"redirect_uri=" + url.QueryEscape(uri),
+			"state=" + url.QueryEscape(state.State),
+		}
+		// Return the complete authentication URI and the OIDC state
+		return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
 	}
-	// Return the complete authentication URI and the OIDC state
-	return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
+	state.Done()
+	return "", nil
 }
 
 func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {

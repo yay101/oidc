@@ -2,12 +2,21 @@ package oidc
 
 type Providers []Provider
 
+type providertype string
+
+const (
+	OIDC   providertype = "oidc"
+	OAuth2 providertype = "oauth2"
+)
+
 // Provider defines the configuration and runtime state for an OpenID Connect (OIDC) identity provider.
 type Provider struct {
 	// Unique identifier for the provider.
 	Id string `json:"id"`
 	// Whether the provider is enabled for use.
 	Enabled bool `json:"enabled"`
+	// Switch between OIDC and OAuth2
+	Type *providertype `json:"type"`
 	// Display name for the provider.
 	Name string `json:"name"`
 	// URL or base64 encoded string of the provider's logo.
