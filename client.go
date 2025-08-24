@@ -252,6 +252,9 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 	case "application/json":
 		// Decode the JSON response into the idwrapper
 		err = json.NewDecoder(res.Body).Decode(&wrapper)
+		if err != nil {
+			return token, err
+		}
 	case "application/x-www-form-urlencoded":
 		// Read the response body
 		body, err := io.ReadAll(res.Body)
@@ -266,9 +269,13 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 		// Extract the state and id_token from the parsed data
 		wrapper.State = bv.Get("state")
 		wrapper.IDToken = bv.Get("id_token")
+		wrapper.AccessToken = bv.Get("access_token")
 	default:
-		body, _ := io.ReadAll(res.Body)
-		log.Print(string(body))
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return token, err
+		}
+		return token, errors.New(string(body))
 	}
 	return wrapper, err
 }
