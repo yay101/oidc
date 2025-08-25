@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"log/slog"
 	"math/rand"
 	"net"
@@ -244,7 +243,6 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 	// Check if the request was successful
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		log.Print(res.Status, string(body))
 		return token, errors.New(string(body))
 	}
 	// Handle different content types in the response
