@@ -1,5 +1,15 @@
 package oidc
 
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+)
+
 type Providers []Provider
 
 type providertype string
@@ -54,4 +64,149 @@ type EndpointConfiguration struct {
 	GrantTypes []string `json:"grant_types_supported"`
 	// Scopes is a list of the scopes that the OP supports.
 	Scopes []string `json:"scopes"`
+}
+
+func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
+	// Determine the user's address, prioritizing headers
+	useraddr := ""
+	switch true {
+	case r.Header.Get("X-Forwarded-For") != "":
+		useraddr = r.Header.Get("X-Forwarded-For")
+	case r.Header.Get("Forwarded-For") != "":
+		useraddr = r.Header.Get("Forwarded-For")
+	case r.Header.Get("X-Real-IP") != "":
+		useraddr = r.Header.Get("X-Real-IP")
+	default:
+		useraddr = r.RemoteAddr
+	}
+	host, _, err := net.SplitHostPort(useraddr)
+	if err != nil {
+		return "", nil
+	}
+	// Create a new OIDC state
+	state := newState(p, r.Referer(), host)
+	// Construct the redirect URI
+	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
+	// Define the parameters for the authentication request
+	parts := []string{}
+	switch p.Type {
+	case OIDC:
+		parts = []string{
+			"response_type=id_token",
+			"client_id=" + p.ClientId,
+			"scope=openid email profile",
+			"response_mode=form_post",
+			"redirect_uri=" + uri,
+			"state=" + state.State,
+			"nonce=" + newNonce().Nonce,
+		}
+		// Return the complete authentication URI and the OIDC state
+		return p.Endpoints.AuthEndpoint + "?" + url.QueryEscape(strings.Join(parts, "&")), state
+	case OAuth2:
+		parts = []string{
+			"response_type=code",
+			"client_id=" + p.ClientId,
+			"scope=" + strings.Join(p.Endpoints.Scopes, " "),
+			"response_mode=form_post",
+			"redirect_uri=" + uri,
+			"state=" + state.State,
+		}
+		// Return the complete authentication URI and the OIDC state
+		return p.Endpoints.AuthEndpoint + "?" + url.QueryEscape(strings.Join(parts, "&")), state
+	}
+	state.Done()
+	return "", nil
+}
+
+func (p *Provider) processRequest(r *http.Request) (wrapper idwrapper, err error) {
+	// Handle different content types in the response
+	switch strings.Split(r.Header.Get("Content-Type"), ";")[0] {
+	case "application/json":
+		// Decode the JSON response into the idwrapper
+		err = json.NewDecoder(r.Body).Decode(&wrapper)
+		if err != nil {
+			return wrapper, err
+		}
+	case "application/x-www-form-urlencoded":
+		// Read the response body
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return wrapper, err
+		}
+		// Parse the response body as URL-encoded form data
+		bv, err := url.ParseQuery(string(body))
+		if err != nil {
+			return wrapper, err
+		}
+		// Extract the state and id_token from the parsed data
+		wrapper.State = bv.Get("state")
+		wrapper.IDToken = bv.Get("id_token")
+		wrapper.AccessToken = bv.Get("access_token")
+		wrapper.Code = bv.Get("code")
+	default:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return wrapper, err
+		}
+		return wrapper, errors.New(string(body))
+	}
+	return wrapper, nil
+}
+
+func (p *Provider) processResponse(r *http.Response) (wrapper idwrapper, err error) {
+	// Handle different content types in the response
+	switch strings.Split(r.Header.Get("Content-Type"), ";")[0] {
+	case "application/json":
+		// Decode the JSON response into the idwrapper
+		err = json.NewDecoder(r.Body).Decode(&wrapper)
+		if err != nil {
+			return wrapper, err
+		}
+	case "application/x-www-form-urlencoded":
+		// Read the response body
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return wrapper, err
+		}
+		// Parse the response body as URL-encoded form data
+		bv, err := url.ParseQuery(string(body))
+		if err != nil {
+			return wrapper, err
+		}
+		// Extract the state and id_token from the parsed data
+		wrapper.State = bv.Get("state")
+		wrapper.IDToken = bv.Get("id_token")
+		wrapper.AccessToken = bv.Get("access_token")
+		wrapper.Code = bv.Get("code")
+	default:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return wrapper, err
+		}
+		return wrapper, errors.New(string(body))
+	}
+	return wrapper, nil
+}
+
+func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
+	// Construct the redirect URI
+	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
+	// Prepare the form values for the token request
+	values := url.Values{}
+	values.Add("grant_type", "authorization_code")
+	values.Add("client_id", p.ClientId)
+	values.Add("client_secret", p.ClientSecret)
+	values.Add("redirect_uri", uri)
+	values.Add("code", r.URL.Query().Get("code"))
+	// Send the token request to the provider's token endpoint
+	res, err := http.PostForm(p.Endpoints.TokenEndpoint, values)
+	if err != nil {
+		return token, err
+	}
+	// Check if the request was successful
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return token, errors.New(string(body))
+	}
+	return p.processResponse(res)
 }
