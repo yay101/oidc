@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -81,6 +82,7 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	}
 	host, _, err := net.SplitHostPort(useraddr)
 	if err != nil {
+		log.Print(err)
 		return "", nil
 	}
 	// Create a new OIDC state
