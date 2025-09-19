@@ -92,6 +92,7 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	if err != nil {
 		log.Print(err)
 	}
+	log.Print(uri)
 	// Define the parameters for the authentication request
 	parts := []string{}
 	switch p.Type {
