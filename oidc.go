@@ -33,6 +33,9 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		if providers[i].RedirectUri == "" {
 			providers[i].RedirectUri = client.Config.AuthPath
 		}
+		if providers[i].Type == Unset {
+			providers[i].Type = OIDC
+		}
 		// Validate each provider's configuration
 		providers[i].validate()
 	}

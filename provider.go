@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,6 +15,7 @@ type Providers []Provider
 type providertype string
 
 const (
+	Unset  providertype = ""
 	OIDC   providertype = "oidc"
 	OAuth2 providertype = "oauth2"
 )
@@ -82,19 +82,12 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	}
 	host, _, err := net.SplitHostPort(useraddr)
 	if err != nil {
-		log.Print(err)
 		return "", nil
 	}
-	log.Print(host)
-
 	// Create a new OIDC state
 	state := newState(p, r.Referer(), host)
 	// Construct the redirect URI
-	uri, err := url.JoinPath("https://", r.Host, p.RedirectUri)
-	if err != nil {
-		log.Print(err)
-	}
-	log.Print(uri)
+	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
 	// Define the parameters for the authentication request
 	parts := []string{}
 	switch p.Type {
