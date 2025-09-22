@@ -142,6 +142,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
 			return
 		}
+		log.Print(wrapper)
 		// Split the JWT token into its components
 		parts := strings.Split(wrapper.IDToken, ".")
 		if len(parts) != 3 {
