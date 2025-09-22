@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -66,6 +67,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			if client.Config.Providers[i].Id == id {
 				// Generate authorization URL and state
 				url, state := client.Config.Providers[i].AuthUri(r)
+				log.Print(url)
 				if state == nil {
 					http.Error(w, "could not generate a valid state, should only occur when we can't determine the incoming request address", 500)
 					return
