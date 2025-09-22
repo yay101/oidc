@@ -102,7 +102,7 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 			"nonce=" + newNonce().Nonce,
 		}
 		// Return the complete authentication URI and the OIDC state
-		return p.Endpoints.AuthEndpoint + "?" + url.QueryEscape(strings.Join(parts, "&")), state
+		return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
 	case OAuth2:
 		parts = []string{
 			"response_type=code",
@@ -113,7 +113,7 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 			"state=" + state.State,
 		}
 		// Return the complete authentication URI and the OIDC state
-		return p.Endpoints.AuthEndpoint + "?" + url.QueryEscape(strings.Join(parts, "&")), state
+		return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
 	}
 	state.Done()
 	return "", nil
