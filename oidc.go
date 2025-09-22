@@ -111,6 +111,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
 			return
 		}
+		log.Print(wrapper)
 		switch true {
 		case wrapper.IDToken == "" && wrapper.AccessToken != "":
 			wrapper.IDToken = wrapper.AccessToken
