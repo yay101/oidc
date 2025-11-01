@@ -12,22 +12,12 @@ import (
 
 type Providers []Provider
 
-type providertype string
-
-const (
-	Unset  providertype = ""
-	OIDC   providertype = "oidc"
-	OAuth2 providertype = "oauth2"
-)
-
 // Provider defines the configuration and runtime state for an OpenID Connect (OIDC) identity provider.
 type Provider struct {
 	// Unique identifier for the provider.
 	Id string `json:"id"`
 	// Whether the provider is enabled for use.
 	Enabled bool `json:"enabled"`
-	// Switch between OIDC and OAuth2
-	Type providertype `json:"type"`
 	// Display name for the provider.
 	Name string `json:"name"`
 	// URL or base64 encoded string of the provider's logo.
@@ -84,39 +74,26 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	if err != nil {
 		return "", nil
 	}
+	if len(p.Endpoints.Scopes) == 0 {
+		p.Endpoints.Scopes = []string{
+			"openid", "profile", "email",
+		}
+	}
 	// Create a new OIDC state
 	state := newState(p, r.Referer(), host)
 	// Construct the redirect URI
 	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
 	// Define the parameters for the authentication request
-	parts := []string{}
-	switch p.Type {
-	case OIDC:
-		parts = []string{
-			"response_type=id_token",
-			"client_id=" + p.ClientId,
-			"scope=openid email profile",
-			"response_mode=form_post",
-			"redirect_uri=" + uri,
-			"state=" + state.State,
-			"nonce=" + newNonce().Nonce,
-		}
-		// Return the complete authentication URI and the OIDC state
-		return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
-	case OAuth2:
-		parts = []string{
-			"response_type=code",
-			"client_id=" + p.ClientId,
-			"scope=" + strings.Join(p.Endpoints.Scopes, " "),
-			"response_mode=form_post",
-			"redirect_uri=" + uri,
-			"state=" + state.State,
-		}
-		// Return the complete authentication URI and the OIDC state
-		return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
+	parts := []string{
+		"response_type=code",
+		"client_id=" + p.ClientId,
+		"scope=" + strings.Join(p.Endpoints.Scopes, " "),
+		"response_mode=form_post",
+		"redirect_uri=" + uri,
+		"state=" + state.State,
 	}
-	state.Done()
-	return "", nil
+	// Return the complete authentication URI and the OIDC state
+	return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
 }
 
 func (p *Provider) processRequest(r *http.Request) (wrapper idwrapper, err error) {
@@ -199,6 +176,7 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 	values.Add("client_secret", p.ClientSecret)
 	values.Add("redirect_uri", uri)
 	values.Add("code", r.URL.Query().Get("code"))
+	values.Add("nonce", newNonce().Nonce)
 	// Send the token request to the provider's token endpoint
 	res, err := http.PostForm(p.Endpoints.TokenEndpoint, values)
 	if err != nil {

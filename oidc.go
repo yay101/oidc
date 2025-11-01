@@ -34,9 +34,6 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		if providers[i].RedirectUri == "" {
 			providers[i].RedirectUri = client.Config.AuthPath
 		}
-		if providers[i].Type == Unset {
-			providers[i].Type = OIDC
-		}
 		// Validate each provider's configuration
 		providers[i].validate()
 	}
@@ -101,30 +98,14 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		}
 		// Kill state either way by the end of this process
 		defer state.Done()
-
-		// Process response
-		wrapper, err := state.Provider.processRequest(r)
+		// Process the code
+		wrapper, err := state.Provider.codeToken(r)
 		if err != nil {
-			lj.Error("error parsing response to login")
+			lj.Error(err.Error())
+			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
 			// Redirect to login page on error
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Couldnt parse response from login!"})
 			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
 			return
-		}
-		log.Print(wrapper)
-		switch true {
-		case wrapper.IDToken == "" && wrapper.AccessToken != "":
-			wrapper.IDToken = wrapper.AccessToken
-		case wrapper.Code != "":
-			// Exchange code for token
-			wrapper, err = state.Provider.codeToken(r)
-			if err != nil {
-				lj.Error(err.Error())
-				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
-				// Redirect to login page on error
-				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
-				return
-			}
 		}
 		// Initialize token header and ID token structures
 		h := tokenheader{}
@@ -144,6 +125,13 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			return
 		}
 		log.Print(wrapper)
+		// Make sure IDToken has the right number of parts
+		if count := strings.Count(wrapper.IDToken, "."); count != 3 {
+			lj.Error("invalid token format", "extra", strconv.Itoa(count)+" parts (want 3)")
+			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Invalid token format."})
+			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+			return
+		}
 		// Split the JWT token into its components
 		parts := strings.Split(wrapper.IDToken, ".")
 		if len(parts) != 3 {
@@ -160,6 +148,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
 			return
 		}
+		// Decode Payload
 		pb, err := base64.RawURLEncoding.DecodeString(parts[1])
 		if err != nil {
 			lj.Info("invalid characters in payload", "extra", err.Error())
@@ -274,45 +263,51 @@ func (p *Providers) Enabled() (enabled []Provider) {
 
 func (p *Provider) validate() (err error) {
 	// Check if the logo link is valid and accessible
-	p.checkLogoLink()
+	err = p.checkLogoLink()
+	if err != nil {
+		p.Error = err
+		return err
+	}
 	// Verify the configuration link and decode the provider endpoints
-	p.checkConfigurationLink()
-	// If any errors were encountered during validation, return them
-	if p.Error != nil {
-		return p.Error
+	err = p.checkConfigurationLink()
+	if err != nil {
+		p.Error = err
+		return err
 	}
 	// Return nil if validation succeeded
 	return nil
 }
 
-func (p *Provider) checkConfigurationLink() {
+func (p *Provider) checkConfigurationLink() (cerr error) {
 	// Send HTTP GET request to the configuration link
 	resp, err := http.Get(p.ConfigurationLink)
 	if err != nil {
 		// Handle error from GET request
-		p.Error = errors.Join(err, errors.New("error getting configuration link"))
+		cerr = errors.Join(cerr, errors.New("error getting configuration link"))
 	}
 	if resp.StatusCode != 200 {
 		// Check if response status code is not 200 OK
-		p.Error = errors.Join(err, errors.New("got response code "+resp.Status))
+		cerr = errors.Join(cerr, errors.New("got response code "+resp.Status))
 	}
 	// Decode JSON response body into Provider Endpoints
 	err = json.NewDecoder(resp.Body).Decode(&p.Endpoints)
 	if err != nil {
 		// Handle JSON decoding error
-		p.Error = errors.Join(err, errors.New("error decoding configuration link"))
+		cerr = errors.Join(cerr, errors.New("error decoding configuration link"))
 	}
+	return nil
 }
 
-func (p *Provider) checkLogoLink() {
+func (p *Provider) checkLogoLink() (cerr error) {
 	// Send HTTP GET request to the logo URL
 	resp, err := http.Get(p.Logo)
 	if err != nil {
 		// Handle error from GET request
-		p.Error = errors.Join(err, errors.New("error getting logo from link"))
+		cerr = errors.Join(cerr, errors.New("error getting logo from link"))
 	}
 	if resp.StatusCode != 200 {
 		// Check if response status code is not 200 OK
-		p.Error = errors.Join(err, errors.New("got response code "+resp.Status))
+		cerr = errors.Join(cerr, errors.New("got response code "+resp.Status))
 	}
+	return nil
 }
