@@ -99,9 +99,11 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		}
 		// Kill state either way by the end of this process
 		defer state.Done()
+		r.ParseForm()
 		bs, _ := io.ReadAll(r.Body)
 		lj.Info(string(bs))
-		log.Print(r)
+		log.Print(r, r.FormValue("code"))
+
 		// Process the code
 		wrapper, err := state.Provider.codeToken(r)
 		if err != nil {
