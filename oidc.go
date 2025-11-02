@@ -99,10 +99,10 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		}
 		// Kill state either way by the end of this process
 		defer state.Done()
-		// Process the code
-		wrapper, err := state.Provider.codeToken(r)
 		bs, _ := io.ReadAll(r.Body)
 		lj.Info(string(bs))
+		// Process the code
+		wrapper, err := state.Provider.codeToken(r)
 		if err != nil {
 			lj.Error(err.Error())
 			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
