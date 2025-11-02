@@ -16,7 +16,7 @@ type Client struct {
 	RedirectHandler http.Handler
 	// Callback is a function called on successful OIDC authentication
 	// It takes an IDToken and returns a success boolean and a cookie
-	Callback func(IDToken) (bool, *http.Cookie)
+	Callback func(accesstoken *string, refreshtoken *string, expiry *int, idtoken IDToken) (bool, *http.Cookie)
 }
 
 type ClientConfiguration struct {
@@ -31,10 +31,10 @@ type ClientConfiguration struct {
 }
 
 type idwrapper struct {
-	AccessToken string `json:"access_token"`
-	IDToken     string `json:"id_token"`
-	State       string `json:"state"`
-	Code        string `json:"code"`
+	AccessToken  *string `json:"access_token"`
+	RefreshToken *string `json:"refresh_token"`
+	IDToken      *string `json:"id_token"`
+	ExpiresIn    *int    `json:"expires_in"`
 }
 
 type secTime time.Time

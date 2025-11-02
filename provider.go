@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -96,41 +97,6 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
 }
 
-func (p *Provider) processRequest(r *http.Request) (wrapper idwrapper, err error) {
-	// Handle different content types in the response
-	switch strings.Split(r.Header.Get("Content-Type"), ";")[0] {
-	case "application/json":
-		// Decode the JSON response into the idwrapper
-		err = json.NewDecoder(r.Body).Decode(&wrapper)
-		if err != nil {
-			return wrapper, err
-		}
-	case "application/x-www-form-urlencoded":
-		// Read the response body
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			return wrapper, err
-		}
-		// Parse the response body as URL-encoded form data
-		bv, err := url.ParseQuery(string(body))
-		if err != nil {
-			return wrapper, err
-		}
-		// Extract the state and id_token from the parsed data
-		wrapper.State = bv.Get("state")
-		wrapper.IDToken = bv.Get("id_token")
-		wrapper.AccessToken = bv.Get("access_token")
-		wrapper.Code = bv.Get("code")
-	default:
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			return wrapper, err
-		}
-		return wrapper, errors.New(string(body))
-	}
-	return wrapper, nil
-}
-
 func (p *Provider) processResponse(r *http.Response) (wrapper idwrapper, err error) {
 	// Handle different content types in the response
 	switch strings.Split(r.Header.Get("Content-Type"), ";")[0] {
@@ -151,11 +117,25 @@ func (p *Provider) processResponse(r *http.Response) (wrapper idwrapper, err err
 		if err != nil {
 			return wrapper, err
 		}
-		// Extract the state and id_token from the parsed data
-		wrapper.State = bv.Get("state")
-		wrapper.IDToken = bv.Get("id_token")
-		wrapper.AccessToken = bv.Get("access_token")
-		wrapper.Code = bv.Get("code")
+		// Extract values from the parsed data, handling pointers
+		if val := bv.Get("expires_in"); val != "" {
+			i, err := strconv.Atoi(val)
+			if err == nil {
+				wrapper.ExpiresIn = &i
+			}
+		}
+
+		if val := bv.Get("id_token"); val != "" {
+			wrapper.IDToken = &val
+		}
+
+		if val := bv.Get("access_token"); val != "" {
+			wrapper.AccessToken = &val
+		}
+
+		if val := bv.Get("refresh_token"); val != "" {
+			wrapper.RefreshToken = &val
+		}
 	default:
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -175,7 +155,7 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 	values.Add("client_id", p.ClientId)
 	values.Add("client_secret", p.ClientSecret)
 	values.Add("redirect_uri", uri)
-	values.Add("code", r.URL.Query().Get("code"))
+	values.Add("code", r.FormValue("code"))
 	values.Add("nonce", newNonce().Nonce)
 	// Send the token request to the provider's token endpoint
 	res, err := http.PostForm(p.Endpoints.TokenEndpoint, values)

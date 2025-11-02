@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"log"
 	"log/slog"
 	"net"
@@ -86,7 +85,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		// Retrieve state cookie from the request
 		state := &oidcstate{}
 		if r.Form.Has("state") {
-			state = getState(r.Form.Get("state"))
+			state = getState(r.FormValue("state"))
 		} else if cookie, err := r.Cookie("state"); err == nil {
 			state = getState(cookie.Value)
 		}
@@ -99,11 +98,6 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		}
 		// Kill state either way by the end of this process
 		defer state.Done()
-		r.ParseForm()
-		bs, _ := io.ReadAll(r.Body)
-		lj.Info(string(bs))
-		log.Print(r, r.FormValue("code"))
-
 		// Process the code
 		wrapper, err := state.Provider.codeToken(r)
 		if err != nil {
@@ -115,9 +109,11 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		}
 		// Initialize token header and ID token structures
 		h := tokenheader{}
-		p := IDToken{
-			AccessToken: wrapper.AccessToken,
-			Initiator:   state.Initiator,
+		AccessToken := wrapper.AccessToken
+		RefreshToken := wrapper.RefreshToken
+		Expiry := wrapper.ExpiresIn
+		IdToken := IDToken{
+			Initiator: state.Initiator,
 		}
 		//check the ip address is the same as the original requestor
 		xfwdHost, _, _ := net.SplitHostPort(r.Header.Get("X-Forwarded-For"))
@@ -126,120 +122,120 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		remoteHost, _, _ := net.SplitHostPort(r.RemoteAddr)
 		// Trigger error if none of the potential host sources match the initiator
 		if xfwdHost != state.Initiator && fwdHost != state.Initiator && realIPHost != state.Initiator && remoteHost != state.Initiator {
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Bad location."})
+			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Bad location, did your IP change?"})
 			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
 			return
 		}
-		log.Print(wrapper)
-		// Make sure IDToken has the right number of parts
-		if count := strings.Count(wrapper.IDToken, "."); count != 3 {
-			lj.Error("invalid token format", "extra", strconv.Itoa(count)+" parts (want 3)")
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Invalid token format."})
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
-			return
-		}
-		// Split the JWT token into its components
-		parts := strings.Split(wrapper.IDToken, ".")
-		if len(parts) != 3 {
-			lj.Error("invalid token format", "extra", strconv.Itoa(len(parts))+" parts (want 3)")
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Invalid token format."})
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
-			return
-		}
-		// Decode header and payload from base64
-		hb, err := base64.RawURLEncoding.DecodeString(parts[0])
-		if err != nil {
-			lj.Info("invalid characters in header", "extra", err.Error())
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
-			return
-		}
-		// Decode Payload
-		pb, err := base64.RawURLEncoding.DecodeString(parts[1])
-		if err != nil {
-			lj.Info("invalid characters in payload", "extra", err.Error())
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
-			return
-		}
-		// Unmarshal header JSON
-		err = json.Unmarshal(hb, &h)
-		if err != nil {
-			lj.Info("cannot unmarshal header", "extra", err.Error())
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
-			// Redirect to login page on error
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
-			return
-		}
+		if wrapper.IDToken != nil {
+			// Make sure IDToken has the right number of parts
+			if count := strings.Count(*wrapper.IDToken, "."); count != 2 {
+				lj.Error("invalid jwt format", "extra", strconv.Itoa(count)+" . (want 2)")
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Invalid token format."})
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
+			// Split the JWT token into its components
+			parts := strings.Split(*wrapper.IDToken, ".")
+			if len(parts) != 3 {
+				lj.Error("invalid token format", "extra", strconv.Itoa(len(parts))+" parts (want 3)")
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Invalid token format."})
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
+			// Decode header and payload from base64
+			hb, err := base64.RawURLEncoding.DecodeString(parts[0])
+			if err != nil {
+				lj.Info("invalid characters in header", "extra", err.Error())
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
+			// Decode Payload
+			pb, err := base64.RawURLEncoding.DecodeString(parts[1])
+			if err != nil {
+				lj.Info("invalid characters in payload", "extra", err.Error())
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
+			// Unmarshal header JSON
+			err = json.Unmarshal(hb, &h)
+			if err != nil {
+				lj.Info("cannot unmarshal header", "extra", err.Error())
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
+				// Redirect to login page on error
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
 
-		// Unmarshal payload JSON
-		err = json.Unmarshal(pb, &p)
-		if err != nil {
-			lj.Info("cannot unmarshal payload", "extra", err.Error())
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
-			// Redirect to login page on error
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
-			return
-		}
+			// Unmarshal payload JSON
+			err = json.Unmarshal(pb, &IdToken)
+			if err != nil {
+				lj.Info("cannot unmarshal payload", "extra", err.Error())
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
+				// Redirect to login page on error
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
 
-		// Check if token is issued in the future (potential clock skew)
-		if time.Time(p.IssuedAt).After(time.Now().Add(5 * time.Minute)) {
-			lj.Info("token issued in the future")
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Token issued in the future!"})
-			// Redirect to login page on error
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
-			return
-		}
+			// Check if token is issued in the future (potential clock skew)
+			if time.Time(IdToken.IssuedAt).After(time.Now().Add(5 * time.Minute)) {
+				lj.Info("token issued in the future")
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Token issued in the future!"})
+				// Redirect to login page on error
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
 
-		// Check if token is expired
-		if time.Time(p.Expiration).Before(time.Now()) {
-			lj.Info("token has expired")
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Token already expired."})
-			// Redirect to login page on error
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
-			return
-		}
+			// Check if token is expired
+			if time.Time(IdToken.Expiration).Before(time.Now()) {
+				lj.Info("token has expired")
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Token already expired."})
+				// Redirect to login page on error
+				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				return
+			}
 
-		// Verify nonce to prevent replay attacks
-		if !getNonce(p.Nonce) {
-			lj.Info("replay protection triggered.")
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Replay protection triggered."})
-			http.Redirect(w, r, client.Config.LoginPath, 302)
-			return
-		}
-		// Try to verify signature twice, refreshing keys if first attempt fails
-		for range 2 {
-			// Check each key from the provider
-			for i := range state.Provider.Keys {
-				// Skip keys that don't match the key ID in the token header
-				if state.Provider.Keys[i].Id != h.Kid {
-					continue
-				}
-				// Verify the RS256 signature using the provider's public key
-				ok, err := verifyRS256Signature(wrapper.IDToken, state.Provider.Keys[i].Key)
-				if !ok || err != nil {
-					lj.Info("could not verify the signature of the token")
-					http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Could not verify the signature of your token:" + err.Error()})
-					http.Redirect(w, r, client.Config.LoginPath, 302)
-					return
-				} else {
-					// If signature is valid, call the client's callback function
-					if ok, cookie := client.Callback(p); ok {
-						// Set the cookie domain to the initiator
-						cookie.Domain = state.Initiator
-						http.SetCookie(w, cookie)
-						redirect, _ := r.Cookie("Login-Redirect")
-						if redirect != nil {
-							state.RedirectUri = redirect.Value
-						}
-						// Redirect to the original redirect URI
-						http.Redirect(w, r, state.RedirectUri, 302)
+			// Verify nonce to prevent replay attacks
+			if !getNonce(IdToken.Nonce) {
+				lj.Info("replay protection triggered.")
+				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Replay protection triggered."})
+				http.Redirect(w, r, client.Config.LoginPath, 302)
+				return
+			}
+			// Try to verify signature twice, refreshing keys if first attempt fails
+			for range 2 {
+				// Check each key from the provider
+				for i := range state.Provider.Keys {
+					// Skip keys that don't match the key ID in the token header
+					if state.Provider.Keys[i].Id != h.Kid {
+						continue
+					}
+					// Verify the RS256 signature using the provider's public key
+					ok, err := verifyRS256Signature(*wrapper.IDToken, state.Provider.Keys[i].Key)
+					if !ok || err != nil {
+						lj.Info("could not verify the signature of the token")
+						http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Could not verify the signature of your token:" + err.Error()})
+						http.Redirect(w, r, client.Config.LoginPath, 302)
 						return
 					}
 				}
+				// Refresh keys if signature verification failed
+				state.Provider.getKeys()
 			}
-			// Refresh keys if signature verification failed
-			state.Provider.getKeys()
+		}
+		// Call the client's callback function
+		if ok, cookie := client.Callback(AccessToken, RefreshToken, Expiry, IdToken); ok {
+			// Set the cookie domain to the initiator
+			cookie.Domain = state.Initiator
+			http.SetCookie(w, cookie)
+			redirect, _ := r.Cookie("Login-Redirect")
+			if redirect != nil {
+				state.RedirectUri = redirect.Value
+			}
+			// Redirect to the original redirect URI
+			http.Redirect(w, r, state.RedirectUri, 302)
+			return
 		}
 	})
 	// Return the fully configured client
