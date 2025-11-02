@@ -228,7 +228,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		// Call the client's callback function
 		if ok, cookie := client.Callback(AccessToken, RefreshToken, Expiry, IdToken); ok {
 			// Set the cookie domain to the initiator
-			cookie.Domain = state.Initiator
+			cookie.Domain = r.Host
 			http.SetCookie(w, cookie)
 			redirect, _ := r.Cookie("Login-Redirect")
 			if redirect != nil {

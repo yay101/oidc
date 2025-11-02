@@ -127,15 +127,12 @@ func (p *Provider) processResponse(r *http.Response) (wrapper idwrapper, err err
 				wrapper.ExpiresIn = &i
 			}
 		}
-
 		if val := bv.Get("id_token"); val != "" {
 			wrapper.IDToken = &val
 		}
-
 		if val := bv.Get("access_token"); val != "" {
 			wrapper.AccessToken = &val
 		}
-
 		if val := bv.Get("refresh_token"); val != "" {
 			wrapper.RefreshToken = &val
 		}
