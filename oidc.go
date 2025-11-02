@@ -4,10 +4,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"log"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -64,13 +64,10 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			if client.Config.Providers[i].Id == id {
 				// Generate authorization URL and state
 				url, state := client.Config.Providers[i].AuthUri(r)
-				log.Print(url)
 				if state == nil {
 					http.Error(w, "could not generate a valid state, should only occur when we can't determine the incoming request address", 500)
 					return
 				}
-				// Set state cookie for later verification
-				http.SetCookie(w, &http.Cookie{Name: "state", Value: state.State, Path: client.Config.AuthPath, Expires: time.Now().Add(5 * time.Minute), Secure: true})
 				// Redirect user to the authorization endpoint
 				http.Redirect(w, r, url, 302)
 				return
@@ -88,18 +85,14 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			state = getState(r.FormValue("state"))
 		}
 		if r.Form.Has("error") {
-			log.Print(r.FormValue("error_description"))
-			http.Redirect(w, r, client.Config.LoginPath+"?error="+r.FormValue("error_description"), http.StatusFound)
+			lj.Error(r.FormValue("error_description"))
+			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(r.FormValue("error_description")), http.StatusFound)
 			return
 		}
-		// } else if cookie, err := r.Cookie("state"); err == nil {
-		// 	state = getState(cookie.Value)
-		// }
 		if state == nil {
 			lj.Error("no state with request")
 			// Redirect to login page on error
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "No state cookie with request!"})
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("No state  with request!"), http.StatusFound)
 			return
 		}
 		// Kill state either way by the end of this process
@@ -108,9 +101,8 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		wrapper, err := state.Provider.codeToken(r)
 		if err != nil {
 			lj.Error(err.Error())
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
 			// Redirect to login page on error
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(err.Error()), http.StatusFound)
 			return
 		}
 		// Initialize token header and ID token structures
@@ -128,49 +120,43 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		remoteHost, _, _ := net.SplitHostPort(r.RemoteAddr)
 		// Trigger error if none of the potential host sources match the initiator
 		if xfwdHost != state.Initiator && fwdHost != state.Initiator && realIPHost != state.Initiator && remoteHost != state.Initiator {
-			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Bad location, did your IP change?"})
-			http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Bad location, did your IP change?"), http.StatusFound)
 			return
 		}
 		if wrapper.IDToken != nil {
 			// Make sure IDToken has the right number of splits
 			if count := strings.Count(*wrapper.IDToken, "."); count != 2 {
 				lj.Error("invalid jwt format", "extra", strconv.Itoa(count)+" . (want 2)")
-				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Invalid token format."})
-				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Invalid token format."), http.StatusFound)
 				return
 			}
 			// Split the JWT token into its components
 			parts := strings.Split(*wrapper.IDToken, ".")
 			if len(parts) != 3 {
 				lj.Error("invalid token format", "extra", strconv.Itoa(len(parts))+" parts (want 3)")
-				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Invalid token format."})
-				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Invalid token format."), http.StatusFound)
 				return
 			}
 			// Decode header and payload from base64
 			hb, err := base64.RawURLEncoding.DecodeString(parts[0])
 			if err != nil {
 				lj.Info("invalid characters in header", "extra", err.Error())
-				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
-				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Invalid token format."), http.StatusFound)
 				return
 			}
 			// Decode Payload
 			pb, err := base64.RawURLEncoding.DecodeString(parts[1])
 			if err != nil {
 				lj.Info("invalid characters in payload", "extra", err.Error())
-				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
-				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(err.Error()), http.StatusFound)
 				return
 			}
 			// Unmarshal header JSON
 			err = json.Unmarshal(hb, &h)
 			if err != nil {
 				lj.Info("cannot unmarshal header", "extra", err.Error())
-				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
 				// Redirect to login page on error
-				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(err.Error()), http.StatusFound)
 				return
 			}
 
@@ -178,35 +164,31 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			err = json.Unmarshal(pb, &IdToken)
 			if err != nil {
 				lj.Info("cannot unmarshal payload", "extra", err.Error())
-				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
 				// Redirect to login page on error
-				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(err.Error()), http.StatusFound)
 				return
 			}
 
 			// Check if token is issued in the future (potential clock skew)
 			if time.Time(IdToken.IssuedAt).After(time.Now().Add(5 * time.Minute)) {
 				lj.Info("token issued in the future")
-				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Token issued in the future!"})
 				// Redirect to login page on error
-				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Token issued in the future!"), http.StatusFound)
 				return
 			}
 
 			// Check if token is expired
 			if time.Time(IdToken.Expiration).Before(time.Now()) {
 				lj.Info("token has expired")
-				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Token already expired."})
 				// Redirect to login page on error
-				http.Redirect(w, r, client.Config.LoginPath, http.StatusFound)
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Token already expired."), http.StatusFound)
 				return
 			}
 
 			// Verify nonce to prevent replay attacks
 			if !getNonce(IdToken.Nonce) {
 				lj.Info("replay protection triggered.")
-				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Replay protection triggered."})
-				http.Redirect(w, r, client.Config.LoginPath, 302)
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Replay protection triggered."), 302)
 				return
 			}
 			// Try to verify signature twice, refreshing keys if first attempt fails
@@ -222,7 +204,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 					if !ok || err != nil {
 						lj.Info("could not verify the signature of the token")
 						http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Could not verify the signature of your token:" + err.Error()})
-						http.Redirect(w, r, client.Config.LoginPath, 302)
+						http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Could not verify the signature of your token:"+err.Error()), 302)
 						return
 					}
 				}
