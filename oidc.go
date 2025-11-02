@@ -197,7 +197,6 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			}
 
 			// Verify nonce to prevent replay attacks
-			log.Print(IdToken.Nonce)
 			if !getNonce(IdToken.Nonce) {
 				lj.Info("replay protection triggered.")
 				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Replay protection triggered."})
