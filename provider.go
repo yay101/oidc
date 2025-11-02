@@ -83,6 +83,7 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	}
 	// Create a new OIDC state
 	log.Print(r.Referer())
+	log.Print(r)
 	state := newState(p, r.Referer(), host)
 	// Construct the redirect URI
 	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
