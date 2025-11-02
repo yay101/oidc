@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -81,6 +82,7 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 		}
 	}
 	// Create a new OIDC state
+	log.Print(r.Referer())
 	state := newState(p, r.Referer(), host)
 	// Construct the redirect URI
 	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
