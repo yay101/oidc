@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -113,6 +114,7 @@ func (p *Provider) processResponse(r *http.Response) (wrapper idwrapper, err err
 			return wrapper, err
 		}
 		// Parse the response body as URL-encoded form data
+		log.Print(string(body))
 		bv, err := url.ParseQuery(string(body))
 		if err != nil {
 			return wrapper, err
