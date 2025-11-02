@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -89,6 +90,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(r.FormValue("error_description")), http.StatusFound)
 			return
 		}
+		log.Print(state)
 		if state == nil {
 			lj.Error("no state with request")
 			// Redirect to login page on error
