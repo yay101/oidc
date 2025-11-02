@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"log/slog"
 	"net"
@@ -15,7 +16,7 @@ import (
 	"time"
 )
 
-func NewClient(domains []string, providers Providers, authpath string, loginpath string, logger *slog.Logger) *Client {
+func NewClient(domains []string, providers Providers, authpath string, loginpath string, logger *slog.Logger, callback func()) *Client {
 	if logger == nil {
 		lj = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{AddSource: true}))
 	}
@@ -100,6 +101,8 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		defer state.Done()
 		// Process the code
 		wrapper, err := state.Provider.codeToken(r)
+		bs, _ := io.ReadAll(r.Body)
+		lj.Info(string(bs))
 		if err != nil {
 			lj.Error(err.Error())
 			http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: err.Error()})
