@@ -223,6 +223,9 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			if redirect != nil {
 				state.RedirectUri = redirect.Value
 			}
+			if strings.Contains(state.RedirectUri, client.Config.AuthPath) || strings.Contains(state.RedirectUri, client.Config.LoginPath) {
+				state.RedirectUri = r.Host
+			}
 			// Redirect to the original redirect URI
 			http.Redirect(w, r, state.RedirectUri, 302)
 			return
