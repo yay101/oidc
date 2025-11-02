@@ -157,13 +157,15 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 	// Construct the redirect URI
 	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
 	// Prepare the form values for the token request
+	n := newNonce().Nonce
+	log.Print(n)
 	values := url.Values{}
 	values.Add("grant_type", "authorization_code")
 	values.Add("client_id", p.ClientId)
 	values.Add("client_secret", p.ClientSecret)
 	values.Add("redirect_uri", uri)
 	values.Add("code", r.FormValue("code"))
-	values.Add("nonce", newNonce().Nonce)
+	values.Add("nonce", n)
 	// Send the token request to the provider's token endpoint
 	res, err := http.PostForm(p.Endpoints.TokenEndpoint, values)
 	if err != nil {
