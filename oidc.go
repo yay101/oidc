@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-func NewClient(domains []string, providers Providers, authpath string, loginpath string, logger *slog.Logger, callback func()) *Client {
+func NewClient(domains []string, providers Providers, authpath string, loginpath string, logger *slog.Logger) *Client {
 	if logger == nil {
 		lj = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{AddSource: true}))
 	}
