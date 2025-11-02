@@ -127,7 +127,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			return
 		}
 		if wrapper.IDToken != nil {
-			// Make sure IDToken has the right number of parts
+			// Make sure IDToken has the right number of splits
 			if count := strings.Count(*wrapper.IDToken, "."); count != 2 {
 				lj.Error("invalid jwt format", "extra", strconv.Itoa(count)+" . (want 2)")
 				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Invalid token format."})
@@ -197,6 +197,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			}
 
 			// Verify nonce to prevent replay attacks
+			log.Print(IdToken.Nonce)
 			if !getNonce(IdToken.Nonce) {
 				lj.Info("replay protection triggered.")
 				http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Replay protection triggered."})
