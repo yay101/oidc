@@ -219,7 +219,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			// Set the cookie domain to the initiator
 			cookie.Domain = r.Host
 			http.SetCookie(w, cookie)
-			redirect, _ := r.Cookie("Login-Redirect")
+			redirect, _ := r.Cookie("redirect")
 			if redirect != nil {
 				state.RedirectUri = redirect.Value
 			}
@@ -233,6 +233,9 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 }
 
 func (c *Client) GetProvider(id string) *Provider {
+	if len(c.Config.Providers) == 1 {
+		return &c.Config.Providers[0]
+	}
 	for i := range c.Config.Providers {
 		if c.Config.Providers[i].Id == id || c.Config.Providers[i].Name == id {
 			return &c.Config.Providers[i]
