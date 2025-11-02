@@ -101,6 +101,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		defer state.Done()
 		bs, _ := io.ReadAll(r.Body)
 		lj.Info(string(bs))
+		log.Print(r)
 		// Process the code
 		wrapper, err := state.Provider.codeToken(r)
 		if err != nil {
