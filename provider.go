@@ -103,6 +103,11 @@ func (p *Provider) processResponse(r *http.Response) (wrapper idwrapper, err err
 	switch strings.Split(r.Header.Get("Content-Type"), ";")[0] {
 	case "application/json":
 		// Decode the JSON response into the idwrapper
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return wrapper, err
+		}
+		log.Print(string(body))
 		err = json.NewDecoder(r.Body).Decode(&wrapper)
 		if err != nil {
 			return wrapper, err
