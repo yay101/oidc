@@ -86,9 +86,15 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		state := &oidcstate{}
 		if r.Form.Has("state") {
 			state = getState(r.FormValue("state"))
-		} else if cookie, err := r.Cookie("state"); err == nil {
-			state = getState(cookie.Value)
 		}
+		if r.Form.Has("error") {
+			log.Print(r.FormValue("error_description"))
+			http.Redirect(w, r, client.Config.LoginPath+"?error="+r.FormValue("error_description"), http.StatusFound)
+			return
+		}
+		// } else if cookie, err := r.Cookie("state"); err == nil {
+		// 	state = getState(cookie.Value)
+		// }
 		if state == nil {
 			lj.Error("no state with request")
 			// Redirect to login page on error

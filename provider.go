@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -34,6 +33,8 @@ type Provider struct {
 	RedirectUri string `json:"redirecturi"`
 	// Any error encountered during provider setup or discovery.
 	Error error `json:"errors"`
+	// Scopes is a list of the scopes that the OP supports.
+	Scopes []string `json:"scopes"`
 	// Discovered OIDC endpoint configuration from the provider.
 	Endpoints EndpointConfiguration `json:"-"`
 	// List of valid issuer URLs for this provider.
@@ -55,8 +56,6 @@ type EndpointConfiguration struct {
 	ClaimsSupported []string `json:"claims_supported"`
 	// GrantTypes is a list of the OAuth 2.0 Grant Type values that this OP supports.
 	GrantTypes []string `json:"grant_types_supported"`
-	// Scopes is a list of the scopes that the OP supports.
-	Scopes []string `json:"scopes"`
 }
 
 func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
@@ -76,8 +75,8 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	if err != nil {
 		return "", nil
 	}
-	if len(p.Endpoints.Scopes) == 0 {
-		p.Endpoints.Scopes = []string{
+	if len(p.Scopes) == 0 {
+		p.Scopes = []string{
 			"openid", "profile", "email",
 		}
 	}
@@ -89,7 +88,7 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 	parts := []string{
 		"response_type=code",
 		"client_id=" + p.ClientId,
-		"scope=" + strings.Join(p.Endpoints.Scopes, " "),
+		"scope=" + strings.Join(p.Scopes, " "),
 		"response_mode=form_post",
 		"redirect_uri=" + uri,
 		"state=" + state.State,
@@ -115,7 +114,6 @@ func (p *Provider) processResponse(r *http.Response) (wrapper idwrapper, err err
 			return wrapper, err
 		}
 		// Parse the response body as URL-encoded form data
-		log.Print(string(body))
 		bv, err := url.ParseQuery(string(body))
 		if err != nil {
 			return wrapper, err
