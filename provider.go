@@ -93,6 +93,7 @@ func (p *Provider) AuthUri(r *http.Request) (string, *oidcstate) {
 		"response_mode=form_post",
 		"redirect_uri=" + uri,
 		"state=" + state.State,
+		"nonce=" + newNonce().Nonce,
 	}
 	// Return the complete authentication URI and the OIDC state
 	return p.Endpoints.AuthEndpoint + "?" + strings.Join(parts, "&"), state
@@ -103,11 +104,6 @@ func (p *Provider) processResponse(r *http.Response) (wrapper idwrapper, err err
 	switch strings.Split(r.Header.Get("Content-Type"), ";")[0] {
 	case "application/json":
 		// Decode the JSON response into the idwrapper
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			return wrapper, err
-		}
-		log.Print(string(body))
 		err = json.NewDecoder(r.Body).Decode(&wrapper)
 		if err != nil {
 			return wrapper, err
@@ -157,15 +153,12 @@ func (p *Provider) codeToken(r *http.Request) (token idwrapper, err error) {
 	// Construct the redirect URI
 	uri, _ := url.JoinPath("https://", r.Host, p.RedirectUri)
 	// Prepare the form values for the token request
-	n := newNonce().Nonce
-	log.Print(n)
 	values := url.Values{}
 	values.Add("grant_type", "authorization_code")
 	values.Add("client_id", p.ClientId)
 	values.Add("client_secret", p.ClientSecret)
 	values.Add("redirect_uri", uri)
 	values.Add("code", r.FormValue("code"))
-	values.Add("nonce", n)
 	// Send the token request to the provider's token endpoint
 	res, err := http.PostForm(p.Endpoints.TokenEndpoint, values)
 	if err != nil {
