@@ -18,6 +18,8 @@ import (
 func NewClient(domains []string, providers Providers, authpath string, loginpath string, logger *slog.Logger) *Client {
 	if logger == nil {
 		lj = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{AddSource: true}))
+	} else {
+		lj = logger
 	}
 	// Initialize a new client with the provided configuration
 	client := &Client{
