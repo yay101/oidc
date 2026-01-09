@@ -37,6 +37,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		// Validate each provider's configuration
 		err := providers[i].checkConfigurationLink()
 		if err != nil {
+			lj.Error(err.Error())
 			providers[i].Error = err
 		}
 		return nil
