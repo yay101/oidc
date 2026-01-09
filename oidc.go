@@ -35,7 +35,11 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			providers[i].RedirectUri = client.Config.AuthPath
 		}
 		// Validate each provider's configuration
-		providers[i].validate()
+		err := providers[i].checkConfigurationLink()
+		if err != nil {
+			providers[i].Error = err
+		}
+		return nil
 	}
 	// Run getkeys regularly to prevent stale signatures
 	go func() {
@@ -257,53 +261,21 @@ func (p *Providers) Enabled() (enabled []Provider) {
 	return enabled
 }
 
-func (p *Provider) validate() (err error) {
-	// Check if the logo link is valid and accessible
-	err = p.checkLogoLink()
-	if err != nil {
-		p.Error = err
-		return err
-	}
-	// Verify the configuration link and decode the provider endpoints
-	err = p.checkConfigurationLink()
-	if err != nil {
-		p.Error = err
-		return err
-	}
-	// Return nil if validation succeeded
-	return nil
-}
-
-func (p *Provider) checkConfigurationLink() (cerr error) {
+func (p *Provider) checkConfigurationLink() (err error) {
 	// Send HTTP GET request to the configuration link
 	resp, err := http.Get(p.ConfigurationLink)
 	if err != nil {
-		// Handle error from GET request
-		cerr = errors.Join(cerr, errors.New("error getting configuration link"))
+		return err
 	}
 	if resp.StatusCode != 200 {
 		// Check if response status code is not 200 OK
-		cerr = errors.Join(cerr, errors.New("got response code "+resp.Status))
+		return errors.New("got response code " + resp.Status)
 	}
 	// Decode JSON response body into Provider Endpoints
 	err = json.NewDecoder(resp.Body).Decode(&p.Endpoints)
 	if err != nil {
 		// Handle JSON decoding error
-		cerr = errors.Join(cerr, errors.New("error decoding configuration link"))
-	}
-	return nil
-}
-
-func (p *Provider) checkLogoLink() (cerr error) {
-	// Send HTTP GET request to the logo URL
-	resp, err := http.Get(p.Logo)
-	if err != nil {
-		// Handle error from GET request
-		cerr = errors.Join(cerr, errors.New("error getting logo from link"))
-	}
-	if resp.StatusCode != 200 {
-		// Check if response status code is not 200 OK
-		cerr = errors.Join(cerr, errors.New("got response code "+resp.Status))
+		return errors.New("error decoding configuration link")
 	}
 	return nil
 }
