@@ -41,8 +41,8 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		if err != nil {
 			lj.Error(err.Error())
 			providers[i].Error = err
+			return nil
 		}
-		return nil
 	}
 	// Run getkeys regularly to prevent stale signatures
 	go func() {
