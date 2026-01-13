@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -39,7 +40,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		// Validate each provider's configuration
 		err := providers[i].checkConfigurationLink()
 		if err != nil {
-			lj.Error(err.Error())
+			lj.Error(fmt.Sprintf("failed to validate configuration link %v", err.Error()))
 			providers[i].Error = err
 			return nil
 		}
