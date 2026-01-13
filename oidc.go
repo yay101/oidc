@@ -42,7 +42,6 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		if err != nil {
 			lj.Error(fmt.Sprintf("failed to validate configuration link %v", err.Error()))
 			providers[i].Error = err
-			return nil
 		}
 	}
 	// Run getkeys regularly to prevent stale signatures
