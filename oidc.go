@@ -232,8 +232,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 				state.RedirectUri = r.Host
 			}
 			// Redirect to the original redirect URI
-			strings.Trim(state.RedirectUri,"/")
-			http.Redirect(w, r, , 302)
+			http.Redirect(w, r, strings.Trim(state.RedirectUri, "/"), 302)
 			return
 		}
 	})
