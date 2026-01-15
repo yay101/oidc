@@ -224,10 +224,6 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			// Set the cookie domain to the initiator
 			cookie.Domain = r.Host
 			http.SetCookie(w, cookie)
-			redirect, _ := r.Cookie("redirect")
-			if redirect != nil {
-				state.RedirectUri = redirect.Value
-			}
 			if strings.Contains(state.RedirectUri, client.Config.AuthPath) || strings.Contains(state.RedirectUri, client.Config.LoginPath) {
 				state.RedirectUri = r.Host
 			}
