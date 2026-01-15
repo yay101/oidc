@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -210,7 +211,6 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 					ok, err := verifyRS256Signature(*wrapper.IDToken, state.Provider.Keys[i].Key)
 					if !ok || err != nil {
 						lj.Info("could not verify the signature of the token")
-						http.SetCookie(w, &http.Cookie{Name: "Login-Error", Path: "/login", Value: "Could not verify the signature of your token:" + err.Error()})
 						http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Could not verify the signature of your token:"+err.Error()), 302)
 						return
 					}
@@ -225,7 +225,9 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			cookie.Domain = r.Host
 			http.SetCookie(w, cookie)
 			if strings.Contains(state.RedirectUri, client.Config.AuthPath) || strings.Contains(state.RedirectUri, client.Config.LoginPath) {
+				log.Print(state.RedirectUri)
 				state.RedirectUri = r.Host
+				log.Print(r.Host)
 			}
 			// Redirect to the original redirect URI
 			http.Redirect(w, r, strings.Trim(state.RedirectUri, "/"), 302)
