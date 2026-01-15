@@ -225,17 +225,12 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			cookie.Domain = r.Host
 			http.SetCookie(w, cookie)
 			if strings.Contains(state.RedirectUri, client.Config.AuthPath) || strings.Contains(state.RedirectUri, client.Config.LoginPath) {
-				// To determine the scheme (http or https)
-				scheme := "http" // Default to http
-				if r.TLS != nil {
-					scheme = "https"
-				}
 				log.Print(state.RedirectUri)
-				state.RedirectUri = fmt.Sprintf("%s://%s", scheme, r.Host)
+				state.RedirectUri = "/"
 				log.Print(r.Host)
 			}
 			// Redirect to the original redirect URI
-			http.Redirect(w, r, strings.Trim(state.RedirectUri, "/"), 302)
+			http.Redirect(w, r, state.RedirectUri, 302)
 			return
 		}
 	})
