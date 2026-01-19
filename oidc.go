@@ -68,15 +68,16 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 		// Extract provider ID from the request path
 		id := r.PathValue("id")
 		if id == "" || id == "default" {
+			// If there are providers grab the first one
+			if len(client.Config.Providers) > 0 {
+				id = client.Config.Providers[0].Id
+			}
+			// Set whichever is default otherwise
 			for i := range client.Config.Providers {
 				if client.Config.Providers[i].Default {
 					id = client.Config.Providers[i].Id
 					break
 				}
-			}
-			// If there are providers grab the first one
-			if len(client.Config.Providers) > 0 && id == "" {
-				id = client.Config.Providers[0].Id
 			}
 		}
 		// Find the matching provider by ID
