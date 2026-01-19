@@ -23,6 +23,8 @@ type Provider struct {
 	Name string `json:"name"`
 	// URL or base64 encoded string of the provider's logo.
 	Logo string `json:"logo"`
+	// Sets the provider as the default
+	Default bool `json:"default"`
 	// The client ID issued to the application by the provider.
 	ClientId string `json:"clientid"`
 	// The client secret issued to the application by the provider.
