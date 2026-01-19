@@ -93,7 +93,7 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 				return
 			}
 		}
-
+		http.Error(w, "No OIDC providers enabled or none with the provided id", 404)
 	})
 
 	// Set the redirect handler function for the client (handles OAuth callback)
