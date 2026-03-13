@@ -5,25 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 )
 
+// NewClient initializes a new OIDC Client with the provided parameters.
+// It sets up automatic key rotation and creates handlers for initiating auth and processing callbacks.
 func NewClient(domains []string, providers Providers, authpath string, loginpath string, logger *slog.Logger) *Client {
 	if logger == nil {
 		lj = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{AddSource: true}))
 	} else {
 		lj = logger
 	}
-	// Initialize a new client with the provided configuration
+
 	client := &Client{
 		Config: ClientConfiguration{
 			Domains:   domains,
@@ -32,47 +32,43 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 			Providers: providers,
 		},
 	}
-	// Validate all the providers that are passed to the new client
+
+	// Validate configuration for all providers and set defaults
 	for i := range providers {
-		// Set default redirect URI if none is provided
 		if providers[i].RedirectUri == "" {
 			providers[i].RedirectUri = client.Config.AuthPath
 		}
-		// Validate each provider's configuration
 		err := providers[i].checkConfigurationLink()
 		if err != nil {
-			lj.Error(fmt.Sprintf("failed to validate configuration link %v", err.Error()))
+			lj.Error(fmt.Sprintf("failed to validate configuration link for provider %s: %v", providers[i].Id, err.Error()))
 			providers[i].Error = err
 		}
 	}
-	// Run getkeys regularly to prevent stale signatures
+
+	// Background routine for automatic JWKS (Public Keys) rotation
 	go func() {
-		// Create a ticker that triggers every 12 hours
 		tick := time.NewTicker(12 * time.Hour)
 		for {
-			// Fetch keys for all providers
 			for i := range providers {
 				providers[i].getKeys()
 			}
-			// Wait for the next tick (after initial key fetch)
-			// Tick at the end so getkeys is always ran on startup
 			<-tick.C
 		}
 	}()
-	// Set up the provider handler to initiate authentication
+
+	// ProviderHandler initiates the OIDC flow by redirecting to the chosen provider's Auth URI.
 	client.ProviderHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !slices.Contains(client.Config.Domains, r.Host) {
+			lj.Warn("request host not in allowed domains", "host", r.Host)
 			http.Redirect(w, r, r.Referer(), 302)
 			return
 		}
-		// Extract provider ID from the request path
+
 		id := r.PathValue("id")
 		if id == "" || id == "default" {
-			// If there are providers grab the first one
 			if len(client.Config.Providers) > 0 {
 				id = client.Config.Providers[0].Id
 			}
-			// Set whichever is default otherwise
 			for i := range client.Config.Providers {
 				if client.Config.Providers[i].Default {
 					id = client.Config.Providers[i].Id
@@ -80,176 +76,168 @@ func NewClient(domains []string, providers Providers, authpath string, loginpath
 				}
 			}
 		}
-		// Find the matching provider by ID
+
 		for i := range client.Config.Providers {
 			if client.Config.Providers[i].Id == id {
-				// Generate authorization URL and state
 				url, state := client.Config.Providers[i].AuthUri(r)
 				if state == nil {
-					http.Error(w, "could not generate a valid state, should only occur when we can't determine the incoming request address", 500)
+					http.Error(w, "failed to generate authentication state", 500)
 					return
 				}
-				// Redirect user to the authorization endpoint
 				http.Redirect(w, r, url, 302)
 				return
 			}
 		}
-		http.Error(w, "No OIDC providers enabled or none with the provided id", 404)
+		http.Error(w, "OIDC provider not found", 404)
 	})
 
-	// Set the redirect handler function for the client (handles OAuth callback)
+	// RedirectHandler processes the callback from the OIDC provider.
 	client.RedirectHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Parse form data from the request
 		r.ParseForm()
-		// Retrieve state cookie from the request
+
 		state := &oidcstate{}
 		if r.Form.Has("state") {
 			state = getState(r.FormValue("state"))
 		}
+
 		if r.Form.Has("error") {
-			lj.Error(r.FormValue("error_description"))
+			lj.Error("OIDC provider returned an error", "error", r.FormValue("error"), "desc", r.FormValue("error_description"))
 			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(r.FormValue("error_description")), http.StatusFound)
 			return
 		}
+
 		if state == nil {
-			lj.Error("no state with request")
-			// Redirect to login page on error
-			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("No state  with request!"), http.StatusFound)
+			lj.Error("no valid state found for callback request")
+			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Session expired or invalid state."), http.StatusFound)
 			return
 		}
-		// Kill state either way by the end of this process
 		defer state.Done()
-		// Process the code
+
 		wrapper, err := state.Provider.codeToken(r)
 		if err != nil {
-			lj.Error(err.Error())
-			// Redirect to login page on error
+			lj.Error("token exchange failed", "error", err)
 			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(err.Error()), http.StatusFound)
 			return
 		}
-		// Initialize token header and ID token structures
-		h := tokenheader{}
-		AccessToken := wrapper.AccessToken
-		RefreshToken := wrapper.RefreshToken
-		Expiry := wrapper.ExpiresIn
+
 		IdToken := IDToken{
 			Initiator: state.Initiator,
 		}
-		//check the ip address is the same as the original requestor
-		xfwdHost, _, _ := net.SplitHostPort(r.Header.Get("X-Forwarded-For"))
-		fwdHost, _, _ := net.SplitHostPort(r.Header.Get("Forwarded-For"))
-		realIPHost, _, _ := net.SplitHostPort(r.Header.Get("X-Real-IP"))
-		remoteHost, _, _ := net.SplitHostPort(r.RemoteAddr)
-		// Trigger error if none of the potential host sources match the initiator
-		if xfwdHost != state.Initiator && fwdHost != state.Initiator && realIPHost != state.Initiator && remoteHost != state.Initiator {
-			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Bad location, did your IP change?"), http.StatusFound)
+
+		// Robust IP consistency check
+		clientIP := getClientIP(r)
+		if clientIP != state.Initiator {
+			lj.Warn("IP mismatch during callback", "initiator", state.Initiator, "current", clientIP)
+			http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Security check failed: IP address changed."), http.StatusFound)
 			return
 		}
+
 		if wrapper.IDToken != nil {
-			// Make sure IDToken has the right number of splits
-			if count := strings.Count(*wrapper.IDToken, "."); count != 2 {
-				lj.Error("invalid jwt format", "extra", strconv.Itoa(count)+" . (want 2)")
-				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Invalid token format."), http.StatusFound)
-				return
-			}
-			// Split the JWT token into its components
 			parts := strings.Split(*wrapper.IDToken, ".")
 			if len(parts) != 3 {
-				lj.Error("invalid token format", "extra", strconv.Itoa(len(parts))+" parts (want 3)")
+				lj.Error("invalid ID Token format")
 				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Invalid token format."), http.StatusFound)
 				return
 			}
-			// Decode header and payload from base64
+
 			hb, err := base64.RawURLEncoding.DecodeString(parts[0])
-			if err != nil {
-				lj.Info("invalid characters in header", "extra", err.Error())
-				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Invalid token format."), http.StatusFound)
-				return
-			}
-			// Decode Payload
 			pb, err := base64.RawURLEncoding.DecodeString(parts[1])
 			if err != nil {
-				lj.Info("invalid characters in payload", "extra", err.Error())
-				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(err.Error()), http.StatusFound)
+				lj.Error("failed to decode JWT segments", "error", err)
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Token decoding failed."), http.StatusFound)
 				return
 			}
-			// Unmarshal header JSON
-			err = json.Unmarshal(hb, &h)
-			if err != nil {
-				lj.Info("cannot unmarshal header", "extra", err.Error())
-				// Redirect to login page on error
+
+			h := tokenheader{}
+			if err = json.Unmarshal(hb, &h); err != nil {
+				lj.Error("failed to unmarshal token header", "error", err)
 				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(err.Error()), http.StatusFound)
 				return
 			}
 
-			// Unmarshal payload JSON
-			err = json.Unmarshal(pb, &IdToken)
-			if err != nil {
-				lj.Info("cannot unmarshal payload", "extra", err.Error())
-				// Redirect to login page on error
+			if err = json.Unmarshal(pb, &IdToken); err != nil {
+				lj.Error("failed to unmarshal token payload", "error", err)
 				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape(err.Error()), http.StatusFound)
 				return
 			}
 
-			// Check if token is issued in the future (potential clock skew)
 			if time.Time(IdToken.IssuedAt).After(time.Now().Add(5 * time.Minute)) {
-				lj.Info("token issued in the future")
-				// Redirect to login page on error
-				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Token issued in the future!"), http.StatusFound)
+				lj.Error("token issued in the future")
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Token timing invalid."), http.StatusFound)
 				return
 			}
 
-			// Check if token is expired
 			if time.Time(IdToken.Expiration).Before(time.Now()) {
-				lj.Info("token has expired")
-				// Redirect to login page on error
-				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Token already expired."), http.StatusFound)
+				lj.Error("token expired")
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Token expired."), http.StatusFound)
 				return
 			}
 
-			// Verify nonce to prevent replay attacks
 			if !getNonce(IdToken.Nonce) {
-				lj.Info("replay protection triggered.")
-				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Replay protection triggered."), 302)
+				lj.Error("nonce verification failed")
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Security check failed: Nonce mismatch."), 302)
 				return
 			}
-			// Try to verify signature twice, refreshing keys if first attempt fails
+
+			verified := false
+			cachedKeys := state.Provider.GetCachedKeys()
 			for range 2 {
-				// Check each key from the provider
-				for i := range state.Provider.Keys {
-					// Skip keys that don't match the key ID in the token header
-					if state.Provider.Keys[i].Id != h.Kid {
+				for _, key := range cachedKeys {
+					if key.Id != h.Kid {
 						continue
 					}
-					// Verify the RS256 signature using the provider's public key
-					ok, err := verifyRS256Signature(*wrapper.IDToken, state.Provider.Keys[i].Key)
-					if !ok || err != nil {
-						lj.Info("could not verify the signature of the token")
-						http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Could not verify the signature of your token:"+err.Error()), 302)
-						return
+					ok, err := verifyRS256Signature(*wrapper.IDToken, key.Key)
+					if ok && err == nil {
+						verified = true
+						break
 					}
 				}
-				// Refresh keys if signature verification failed
+				if verified {
+					break
+				}
 				state.Provider.getKeys()
+				cachedKeys = state.Provider.GetCachedKeys()
+			}
+
+			if !verified {
+				lj.Error("failed to verify ID Token signature")
+				http.Redirect(w, r, client.Config.LoginPath+"?error="+url.PathEscape("Token signature verification failed."), 302)
+				return
 			}
 		}
-		// Call the client's callback function
-		if ok, cookie := client.Callback(AccessToken, RefreshToken, Expiry, IdToken); ok {
-			// Set the cookie domain to the initiator
+
+		if ok, cookie := client.Callback(wrapper.AccessToken, wrapper.RefreshToken, wrapper.ExpiresIn, IdToken); ok {
 			cookie.Domain = r.Host
 			http.SetCookie(w, cookie)
-			if strings.Contains(state.RedirectUri, client.Config.AuthPath) || strings.Contains(state.RedirectUri, client.Config.LoginPath) {
-				log.Print(state.RedirectUri)
-				state.RedirectUri = "/"
-				log.Print(r.Host)
+
+			finalTarget := state.RedirectUri
+			if strings.Contains(finalTarget, client.Config.AuthPath) || strings.Contains(finalTarget, client.Config.LoginPath) {
+				finalTarget = "/"
 			}
-			// Redirect to the original redirect URI
-			http.Redirect(w, r, state.RedirectUri, 302)
+			http.Redirect(w, r, finalTarget, 302)
 			return
 		}
 	})
-	// Return the fully configured client
+
 	return client
+}
+
+func getClientIP(r *http.Request) string {
+	for _, header := range []string{"X-Forwarded-For", "Forwarded-For", "X-Real-IP"} {
+		if val := r.Header.Get(header); val != "" {
+			if strings.Contains(val, ",") {
+				val = strings.TrimSpace(strings.Split(val, ",")[0])
+			}
+			if host, _, err := net.SplitHostPort(val); err == nil {
+				return host
+			}
+			return val
+		}
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func (c *Client) GetProvider(id string) *Provider {
@@ -265,32 +253,28 @@ func (c *Client) GetProvider(id string) *Provider {
 }
 
 func (p *Providers) Enabled() (enabled []Provider) {
-	// Iterate through all providers in the collection
 	for _, provider := range *p {
-		// Only add providers that have the Enabled flag set to true
 		if provider.Enabled {
 			enabled = append(enabled, provider)
 		}
 	}
-	// Return the slice of enabled providers
 	return enabled
 }
 
 func (p *Provider) checkConfigurationLink() (err error) {
-	// Send HTTP GET request to the configuration link
 	resp, err := http.Get(p.ConfigurationLink)
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != 200 {
-		// Check if response status code is not 200 OK
-		return errors.New("got response code " + resp.Status)
+		return errors.New("discovery endpoint returned status: " + resp.Status)
 	}
-	// Decode JSON response body into Provider Endpoints
+
 	err = json.NewDecoder(resp.Body).Decode(&p.Endpoints)
 	if err != nil {
-		// Handle JSON decoding error
-		return errors.New("error decoding configuration link")
+		return errors.New("failed to decode OIDC discovery metadata")
 	}
 	return nil
 }

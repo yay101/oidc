@@ -3,55 +3,87 @@ package oidc
 import (
 	"context"
 	"slices"
+	"sync"
 	"time"
 )
 
+// oidcstate stores session-specific metadata to prevent CSRF and track redirects.
 type oidcstate struct {
-	State       string
-	Initiator   string
+	// State is the random string sent to the identity provider.
+	State string
+	// Initiator is the IP address of the user who started the authentication.
+	Initiator string
+	// RedirectUri is the original URL the user wanted to access after login.
 	RedirectUri string
-	Provider    *Provider
-	Done        context.CancelFunc
+	// Provider is a reference to the OIDC provider used for this session.
+	Provider *Provider
+	// cancel is a function to clean up the state's internal timeout.
+	cancel context.CancelFunc
 }
 
-var states []*oidcstate
+var (
+	states  []*oidcstate
+	stateMu sync.RWMutex
+)
 
-// getState retrieves an OIDC state by its state string.
-func getState(state string) *oidcstate {
-	// Iterate over the stored states.
+// getState retrieves an OIDC state from the cache by its random string.
+func getState(stateStr string) *oidcstate {
+	stateMu.RLock()
+	defer stateMu.RUnlock()
+
 	for _, s := range states {
-		// If the state matches, return the state.
-		if s.State == state {
+		if s.State == stateStr {
 			return s
 		}
 	}
-	// If no state is found, return nil.
 	return nil
 }
 
-// newState creates a new OIDC state with a timeout.
+// newState creates a new OIDC state with a 5-minute timeout.
 func newState(provider *Provider, uri, initiator string) *oidcstate {
-	// Create a context with a 5-minute timeout
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Minute*5))
-	// Create a new OIDC state
+
 	new := &oidcstate{
-		State:       randString(32), // Generate a random state string
-		Initiator:   initiator,      // Store the initiator (e.g., user's IP address)
-		Done:        cancel,         // Store the cancel function to stop the timeout
-		RedirectUri: uri,            // Store the redirect URI
-		Provider:    provider,       // Store the provider information
+		State:       randString(32),
+		Initiator:   initiator,
+		cancel:      cancel,
+		RedirectUri: uri,
+		Provider:    provider,
 	}
-	// Append the new state to the list of states
+
+	stateMu.Lock()
 	states = append(states, new)
-	// Start a goroutine to clean up the state after the timeout
+	stateMu.Unlock()
+
+	// Background cleanup routine
 	go func() {
-		<-ctx.Done() // Wait for the context to be cancelled or timeout
-		// Remove the state from the list of states
+		<-ctx.Done()
+		stateMu.Lock()
+		defer stateMu.Unlock()
 		for i, s := range states {
 			if s == new {
 				states = slices.Delete(states, i, i+1)
+				break
 			}
 		}
 	}()
+
 	return new
+}
+
+// Done manually removes the state from the active cache and cancels its cleanup timer.
+func (s *oidcstate) Done() {
+	if s == nil {
+		return
+	}
+	s.cancel()
+
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	for i, entry := range states {
+		if entry == s {
+			states = slices.Delete(states, i, i+1)
+			break
+		}
+	}
 }

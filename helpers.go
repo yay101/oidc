@@ -1,15 +1,21 @@
 package oidc
 
-import "math/rand"
+import (
+	"crypto/rand"
+	"math/big"
+)
 
-// randString generates a random string of length n using the characters in letterBytes.
+// randString generates a cryptographically secure random string of length n.
 func randString(n int) string {
-	// Create a byte slice of length n.
 	b := make([]byte, n)
-	// Iterate over the byte slice and fill it with random characters from letterBytes.
 	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(letterBytes))))
+		if err != nil {
+			// Extremely unlikely fallback
+			b[i] = letterBytes[0]
+			continue
+		}
+		b[i] = letterBytes[num.Int64()]
 	}
-	// Convert the byte slice to a string and return it.
 	return string(b)
 }

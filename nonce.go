@@ -3,52 +3,65 @@ package oidc
 import (
 	"context"
 	"slices"
+	"sync"
 	"time"
 )
 
+// nonce represents a security token used once to prevent replay attacks.
 type nonce struct {
+	// Nonce is the random string value.
 	Nonce string
-	Done  context.CancelFunc
+	// Done is a cancel function to manually invalidate the nonce or clean up resources.
+	Done context.CancelFunc
 }
 
-var nonces []*nonce
+var (
+	nonces  []*nonce
+	nonceMu sync.Mutex
+)
 
-// getNonce checks if a nonce exists and cancels its context if found.
-func getNonce(nonce string) bool {
-	// Iterate over the list of nonces.
-	for _, n := range nonces {
-		// Check if the nonce matches.
-		if n.Nonce == nonce {
-			// Cancel the context associated with the nonce.
-			n.Done()
-			// Return true to indicate that the nonce was found.
+// getNonce searches for a nonce in the active cache.
+// If found, it invalidates the nonce (ensuring single use) and returns true.
+func getNonce(nonceStr string) bool {
+	nonceMu.Lock()
+	defer nonceMu.Unlock()
+
+	for i, n := range nonces {
+		if n.Nonce == nonceStr {
+			n.Done() // Trigger cleanup
+			nonces = slices.Delete(nonces, i, i+1)
 			return true
 		}
 	}
-	// Return false if the nonce was not found.
 	return false
 }
 
-// newNonce creates a new nonce with a timeout.
+// newNonce generates a new random nonce with a 5-minute validity window.
+// It automatically handles its own cleanup after the timeout.
 func newNonce() *nonce {
-	// Create a context with a 5-minute timeout
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Minute*5))
-	// Create a new nonce
+
 	new := &nonce{
-		Nonce: randString(32), // Generate a random nonce string
-		Done:  cancel,         // Store the cancel function to stop the timeout
+		Nonce: randString(32),
+		Done:  cancel,
 	}
-	// Append the new nonce to the list of nonces
+
+	nonceMu.Lock()
 	nonces = append(nonces, new)
-	// Start a goroutine to clean up the nonce after the timeout
+	nonceMu.Unlock()
+
+	// Self-cleanup routine
 	go func() {
-		<-ctx.Done() // Wait for the context to be cancelled or timeout
-		// Remove the nonce from the list of nonces
+		<-ctx.Done()
+		nonceMu.Lock()
+		defer nonceMu.Unlock()
 		for i, n := range nonces {
 			if n == new {
 				nonces = slices.Delete(nonces, i, i+1)
+				break
 			}
 		}
 	}()
+
 	return new
 }
