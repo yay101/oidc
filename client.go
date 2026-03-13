@@ -8,7 +8,7 @@ import (
 )
 
 type Client struct {
-	// Config holds the configuration for the OIDC client
+	// Config holds the configuration for the OIDC clients
 	Config ClientConfiguration
 	// ProviderHandler is the HTTP handler for the provider endpoint
 	ProviderHandler http.Handler
